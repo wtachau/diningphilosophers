@@ -46,7 +46,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 			io:format("Received 'become_hungry' check message from ~p~n", [PID]),
 			% first ask all neighbors for forks, and go to hungry
 			send_message(Neighbors, eat_request),
-			hungry(Neighbors, Tokens, EatRequests); %fixme: shouldn't this be []?
+			hungry(Neighbors, Tokens, EatRequests, PID); %fixme: shouldn't this be []?
 		
 		% CONTROLLER METHOD %
 		% Should only receive when eating. Transition to thinking.
@@ -83,11 +83,11 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
 	receive
 		% Was asked for a fork (also called above)
 		{PID, Ref, eat_request} ->
-			hungry(Neighbors, Tokens, EatRequests++PID);
+			hungry(Neighbors, Tokens, EatRequests++PID, Controller);
 		
 		% Was given a fork
 		{PID, Ref, give_fork} ->
-			hungry(Neighbors, Tokens++{PID, clean}, EatRequests);
+			hungry(Neighbors, Tokens++{PID, clean}, EatRequests, Controller);
 
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
@@ -124,36 +124,125 @@ joining_listener(State, Neighbors, ConfirmedNeighbors) ->
 % need some leaving auxiliary here
 
 
-%%%% JAMES IMPLEMENTATION %%%
-
 % current state of the philosopher; will be an atom
 % [A|B] = List of Neighbors
 % [Aa|Bb] = List of neighbors that have confirmed our presence
-% [C|D] = List of Tokens where each item is a tuple: {neighbor_id, clean/dirty}
-% [E|F] = List of Requests tuples {neighbor_id} where requests that are pending will only be hungry requests
+% [C|D] = List of forks where each item is a tuple: {neighbor_id, clean/dirty}
+% [E|F] = List of hungry neighbors
 
-% Joining
-% Two non-empty lists: If not equal, then listen for next confirmation.
-% If equal, go to thinking.
-joining([A|B], [Aa|Bb]) -> [];
+% joining -> joining or thinking
+
+% if the lists are equal, then we move to thinking
+joining([A|B], [Aa|Bb]) ->
+	case equal([A|B], [Aa|Bb]) of
+		% we are now thinking; list of neighbors and empty list of forks and no fork requests
+		true -> handle_message(thinking, [A|B], [], []);
+		false -> joining_listener(joining, [A|B], [Aa|Bb])
+	end;
+
 % we have no confirmed philosophers, so we send a message out asking for confirmation
-joining([A|B], _) -> [];
-% this must be the first philosopher, so we enter thinking
-joining(_, _) -> [].
+joining([A|B], _) ->
+	send_message([A|B], joining),
+	% now we listen with an empty list of confirmations
+	joining_listener(joining, [A|B], []);
+
+% this must be the first philosopher or we have sent all of our messages
+joining([], []) ->
+	handle_message(thinking, [], [], []).
+
+% thinking -> thinking or hungry or leaving
+
+% the controller sets the next state from here
+thinking(Neighbors, Forks) ->
+	handle_message(thinking, Neighbors, Forks, []).
+
 
 % hungry -> hungry or eating or leaving
-hungry([A|B], [C|D], [E|F]) -> [];
-hungry([A|B], _, _) -> [];
-hungry(_, _, _) -> [].
+
+% we have hungry neighbors and forks
+hungry([A|B], [C|D], [E|F], ControllerID) ->
+	% give up our forks where others have priority and are hungry
+	{ForksToGive, IDs} = priority([C|D], [E|F]),
+	case ForksToGive of
+		[A|B] ->
+				send_message(IDs, fork),
+				% remove the forks and ID's from our list
+				handle_message(hungry, [A|B], [C|D]--ForksToGive, [E|F]--IDs, ControllerID)
+	end;
+
+% we have no hungry neighbors
+hungry(Neighbors, Forks, [], ControllerID) ->
+	
+	case equal(Neighbors, Forks) of
+		% we have all the forks so we eat and notify the controller
+		true -> handle_message(eating, Neighbors, Forks, []),
+				send_message([ControllerID], eating);
+		% we do not have all the forks so we wait arity 5
+		false -> handle_message(hungry, Neighbors, Forks, [], ControllerID)
+	end.
 
 % eating -> eating or thinking or leaving
-eating([A|B], [C|D], [E|F]) -> [];
-eating([A|B], _, _) -> [];
-eating(_, _, _) -> []. 
+% the controller sets the next state from here
+eating(Neighbors, Forks, HungryNeighbors) ->
+	handle_message(eating, Neighbors, Forks, HungryNeighbors).
 
-% call handle message with same parameters
-thinking([A|B], [C|D]) -> [];
-thinking([A|B], _) -> [];
-thinking(_, _) -> [].
 
-leaving(_, _) -> []. 
+% leaving -> leaving or gone
+
+% tell our neighbors and the controller that we are peacing
+leaving(Neighbors, ControllerID) ->
+	send_message(Neighbors++[ControllerID], leaving).
+
+% checks if the two lists are of equal length
+equal([A|B], [C|D]) -> equal(B, D);
+
+equal([A|B], _) -> false;
+
+equal(_, _) -> true.
+
+% returns a list of forks and IDs that have priority over us and are hungry
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+priority([C|D], [E|F]) ->
+	% find all of the forks where we don't have priority
+	DirtyForks = remove_clean([C|D], []),
+	% return a list of dirty forks that are in our hungry list
+	priority_helper_1(DirtyForks, [E|F], [], []).
+
+% return forks where ID's are in our hungry list
+priority_helper_1([C|D], [E|F], ReturnForks, ReturnIDs) ->
+	case priority_helper_2(C, [E|F]) of
+		% add the fork to the list
+		{true, ID} -> priority_helper_1(D, [E|F], ReturnForks++[C], ReturnIDs++[ID]);
+		% do not add the element to the list
+		{false, _} -> priority_helper_1(D, [E|F], ReturnForks, ReturnIDs)
+	end;
+priority_helper_1(_, _, ReturnForks, ReturnIDs) -> 
+	io:fwrite("Priority 1 Terminating\n"),
+	{ReturnForks, ReturnIDs}.
+
+% checks if the this single fork is in our hungry list
+priority_helper_2({ID, dirty}, [E|F]) ->
+	case ID =:= E of
+		false -> priority_helper_2({ID, dirty}, F);
+		true -> {true, ID}
+	end;
+
+% we have finished iterating the list and know it does not exist
+priority_helper_2({ID, dirty}, _) -> {false, 0}.
+
+% removes all clean forks from our list
+remove_clean([C|D], DirtyForks) ->
+	case C of 
+		{_, dirty} -> remove_clean(D, DirtyForks++[C]);
+		{_, _} -> remove_clean(D, DirtyForks)
+	end;
+
+remove_clean(_, DirtyForks) -> DirtyForks.
+
+% return a list of IDs from a list of forks
+get_fork_ids([C|D]) ->
+	% add the tuple element to our list
+	get_fork_ids(D) ++[get_id(C)].
+
+get_id({ID, _}) -> ID.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
