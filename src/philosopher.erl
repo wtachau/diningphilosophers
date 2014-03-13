@@ -4,6 +4,10 @@
 %% erl -compile philosopher
 %% erl -noshell -run philosopher main <name> <neighbor1> <neighbor2> -run init stop -noshell
 %% erl -noshell -run philosopher main <name> <neighbor1> -run init stop -noshell
+%%
+%% To run tester:
+%% erl -noshell -run philosopherTester main -run init stop -noshell
+%% >>> become_hungry <name>@<host>
 
 -module(philosopher).
 
@@ -81,7 +85,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 					thinking(Neighbors, Tokens);
 				% If I'm eating, stay eating and add to eat requests
 				eating -> 
-					eating(Neighbors, Tokens, EatRequests++PID)
+					eating(Neighbors, Tokens, EatRequests++[PID])
 			end
 	end.
 
@@ -119,7 +123,7 @@ send_message(Receivers, Message) ->
 	Ref = make_ref(), % make a ref so I know I got a valid response back
 		if 
 			Message == eating ->
-				io:format("(~p) sending message ~p to ~p~n", [node(), Message, hd(Receivers)]),
+				io:format("(~p) sending ** message ~p to ~p~n", [node(), Message, hd(Receivers)]),
 				hd(Receivers) ! {Ref, Message};
 			Message == gone ->
 				hd(Receivers) ! {Ref, Message};

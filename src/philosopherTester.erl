@@ -35,9 +35,6 @@ get_user_input( Prompt ) ->
 
 send_command() -> 
 	try 
-		Message = become_hungry,
-		
-	
 		Input = get_user_input(">>>:"),
 		Command = list_to_atom(hd(Input)),
 		Philosopher = list_to_atom(hd(tl(Input))),
@@ -45,11 +42,11 @@ send_command() ->
 		io:format("Process ~p at node ~p sending message ~p to ~p~n", 
 				  [self(), node(), Command, Philosopher]),
 		Ref = make_ref(), % make a ref so I know I got a valid response back
-		{philosopher, Philosopher} ! {self(), Ref, Message},
+		{philosopher, Philosopher} ! {self(), Ref, Command},
 		
 		% wait for response
 		receive
-			{Ref, eating} ->
+			{Refe, eating} ->
 				io:format("Got message from philosopher ~p: Eating!~n", [Ref])
         after ?TIMEOUT -> io:format("Timed out waiting for reply!~n")
 		end,
