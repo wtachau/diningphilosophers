@@ -50,7 +50,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 			io:format("(~p) Received 'become_hungry' check message from ~p~n", [node(), PID]),
 			% first ask all neighbors for forks, and go to hungry
 			send_message(Neighbors, eat_request),
-			hungry(Neighbors, Tokens, EatRequests, PID);
+			hungry(Neighbors, Tokens, EatRequests, PID, Ref);
 		
 		% CONTROLLER METHOD %
 		% Should only receive when eating. Transition to thinking.
@@ -64,7 +64,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
 			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
-			leaving(Neighbors, PID);
+			leaving(Neighbors, PID, Ref);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
@@ -90,44 +90,39 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 	end.
 
 % Handles a message sent to philosopher (**only called when hungry!)
-handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
+handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef) ->
 	io:format("(~p) is ~p, waiting for message (with Controller ID)...~n", [node(), State]),
 	receive
 		% Was asked for a fork (also called above)
 		{PID, Ref, eat_request} ->
 			io:format("(~p) received 'eat_request' from (~p)~n", [node(), PID]),
-			hungry(Neighbors, Tokens, EatRequests++PID, Controller);
+			hungry(Neighbors, Tokens, EatRequests++PID, Controller, ControllerRef);
 		
 		% Was given a fork
 		{PID, Ref, give_fork} ->
 			io:format("(~p) received 'give_fork' from (~p)~n", [node(), PID]),
-			hungry(Neighbors, Tokens++[{PID, clean}], EatRequests, Controller);
+			hungry(Neighbors, Tokens++[{PID, clean}], EatRequests, Controller, ControllerRef);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
 			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
 			PID ! {self(), Ref, confirmed},
-			handle_message(State, Neighbors++[PID], Tokens, EatRequests, Controller);
+			handle_message(State, Neighbors++[PID], Tokens, EatRequests, Controller, ControllerRef);
 
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
 			io:format("(~p) Received 'leave' message from ~p~n", [PID]),
-			leaving(Neighbors, PID)
+			leaving(Neighbors, PID, Ref)
 	end.
 
 % Sends a message to a list of philosophers (recursively) determined by auxiliary functions
 send_message([], Message) ->
 	ok;
+
 send_message(Receivers, Message) ->
 	Ref = make_ref(), % make a ref so I know I got a valid response back
 		if 
-			Message == eating ->
-				io:format("(~p) sending ** message ~p to ~p~n", [node(), Message, hd(Receivers)]),
-				hd(Receivers) ! {Ref, Message};
-			Message == gone ->
-				hd(Receivers) ! {Ref, Message};
-			% at this point we still have nodenames
 			Message == joining ->
 				NodeName = list_to_atom(hd(Receivers)),
 				io:format("(~p) sending message ~p to ~p~n", [node(), Message, NodeName]),
@@ -141,6 +136,19 @@ send_message(Receivers, Message) ->
 				% and send the rest recursively
 				send_message(tl(Receivers), Message)
 		end.
+
+send_message(Receivers, Message, Ref)->
+	% here we do not make a reference but rather pass the old reference
+	if
+		Message == eating ->
+			NodeName = list_to_atom(hd(Receivers)),
+			io:format("(~p) sending message ~p to ~p~n", [node(), Message, NodeName]),
+			{philosopher, NodeName} ! {Ref, Message};
+		Message == gone ->
+			NodeName = list_to_atom(hd(Receivers)),
+			io:format("(~p) sending message ~p to ~p~n", [node(), Message, NodeName]),
+			{philosopher, NodeName} ! {Ref, Message}
+	end.
 
 % Wait for another join confirmation
 joining_listener(State, Neighbors, ConfirmedNeighbors) ->
@@ -194,28 +202,28 @@ thinking(Neighbors, Forks) ->
 % hungry -> hungry or eating or leaving
 
 % we have hungry neighbors and forks
-hungry([A|B], [C|D], [E|F], ControllerID) ->
+hungry([A|B], [C|D], [E|F], ControllerID, ControllerRef) ->
 	% give up our forks where others have priority and are hungry
 	{ForksToGive, IDs} = priority([C|D], [E|F]),
 	case ForksToGive of
 		[A|B] ->
 				send_message(IDs, fork),
 				% remove the forks and ID's from our list
-				handle_message(hungry, [A|B], [C|D]--ForksToGive, [E|F]--IDs, ControllerID)
+				handle_message(hungry, [A|B], [C|D]--ForksToGive, [E|F]--IDs, ControllerID, ControllerRef)
 	end,
 	% the case where we do not have any forks to give; we make no changes
-	handle_message(hungry, [A|B], [C|D], [E|F], ControllerID);
+	handle_message(hungry, [A|B], [C|D], [E|F], ControllerID, ControllerRef);
 
 % we have no hungry neighbors
-hungry(Neighbors, Forks, [], ControllerID) ->
+hungry(Neighbors, Forks, [], ControllerID, ControllerRef) ->
 	SizeN = len(Neighbors),
 	SizeF = len(Forks),
 	if 
 		SizeN == SizeF ->
 			% we have all the forks so we eat and notify the controller
-			send_message([ControllerID], eating),
+			send_message([ControllerID], eating, ControllerRef),
 			handle_message(eating, Neighbors, Forks, []);
-		true -> handle_message(hungry, Neighbors, Forks, [], ControllerID)
+		true -> handle_message(hungry, Neighbors, Forks, [], ControllerID, ControllerRef)
 			% we do not have all the forks so we wait arity 5
 	end.
 
@@ -228,8 +236,8 @@ eating(Neighbors, Forks, HungryNeighbors) ->
 % leaving -> leaving or gone
 
 % tell our neighbors and the controller that we are peacing
-leaving(Neighbors, ControllerID) ->
-	send_message(Neighbors++[ControllerID], gone). % will have to change how we send to neighbors, controller
+leaving(Neighbors, ControllerID, Ref) ->
+	send_message(Neighbors++[ControllerID], Ref, gone). % will have to change how we send to neighbors, controller
 
 % checks if the two lists are of equal length
 %equal([A|B], [C|D]) -> equal(B, D);
