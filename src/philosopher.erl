@@ -43,6 +43,7 @@ main(Params) ->
 % Handles a message sent to philosopher (every state except hungry)
 handle_message(State, Neighbors, Tokens, EatRequests) ->
 	io:format("(~p) is ~p, waiting for message..~n", [node(), State]),
+	io:format("(~p)'s forks are ~p~n", [node(), Tokens]),
 	receive
 		% CONTROLLER METHOD %
 		% Should only receive when thinking. Transition to hungry.
@@ -58,7 +59,15 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 			io:format("(~p) Received 'stop_eating' check message from ~p~n", [node(), PID]),
 			% send out forks to who asked for it, and go to thinking
 			send_message(EatRequests, give_fork),
-			thinking(Neighbors, Tokens -- EatRequests);
+
+			% turn all our forks dirty
+			DirtyTokens = make_dirty(Tokens),
+			io:format("(~p) all our forks: ~p~n", [node(), DirtyTokens]),
+
+			% Now get rid of those which have been asked for
+			{DeleteTokens, _} = priority(DirtyTokens, EatRequests),
+			io:format("(~p) Should get rid of these tokens: ~p~n", [node(), DeleteTokens]),
+			thinking(Neighbors, DirtyTokens -- DeleteTokens); %fixme: this doesn't do what we want
 		
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
@@ -75,21 +84,25 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 		% One of its friends is leaving
 		{PID, Ref, gone} ->
 			io:format("(~p) Received notice that ~p is leaving~n", [node(), PID]),
-			handle_message(State, Neighbors--[PID], Tokens, EatRequests);
+			NewTokens = Tokens -- [{PID, clean}] -- [{PID, dirty}],
+			handle_message(State, Neighbors--[PID], NewTokens, EatRequests);
 		
 		% Received in thinking or eating
 		{PID, Ref, eat_request} ->
 			io:format("(~p) received 'eat_request' from (~p)~n", [node(), PID]),
 			case State of
-				% If I'm thinking, relinquish fork
+				% If I'm thinking, try to relinquish fork
 				thinking  -> 
 					% We don't know if fork is clean or dirty, so subtract both
-					Tokens = Tokens -- [{self(), clean}], 
-					Tokens = Tokens -- [{self(), dirty}],
+					io:format("(~p) is thinking, give up my fork ~p (<- may be dirty)~n", [node(), [{PID, clean}]]),
+					TempTokens = Tokens -- [{PID, clean}],
+					FinalTokens = TempTokens -- [{PID, dirty}], 
+					io:format("(~p) forks are now ~p~n", [node(), FinalTokens]),
 					send_message([PID], give_fork),
-					thinking(Neighbors, Tokens);
+					thinking(Neighbors, FinalTokens);
 				% If I'm eating, stay eating and add to eat requests
 				eating -> 
+					io:format("(~p) Received request for fork from ~p, but I'm eating~n", [node(), PID]),
 					eating(Neighbors, Tokens, EatRequests++[PID])
 			end
 	end.
@@ -97,6 +110,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 % Handles a message sent to philosopher (**only called when hungry!)
 handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef) ->
 	io:format("(~p) is ~p, waiting for message (with Controller ID)...~n", [node(), State]),
+	io:format("(~p) is hungry! Forks are ~p~n", [node(), Tokens]),
 	receive
 		% Was asked for a fork (also called above)
 		{PID, Ref, eat_request} ->
@@ -104,10 +118,14 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef)
 			hungry(Neighbors, Tokens, EatRequests++[PID], Controller, ControllerRef);
 		
 		% Was given a fork
-		{PID, Ref, give_fork} ->
-			io:format("(~p) received 'give_fork' from (~p)~n", [node(), PID]),
+		{PID, Ref, give_fork} ->												%% JAMES <- SOMEHOW THIS GETS THE WRONG PID?
+			io:format("(~p) received 'give_fork' from (~p)~n", [node(), PID]), 
 			% get rid of the fork and add it to avoid duplicates
-			hungry(Neighbors, Tokens--[{PID, clean}]--[{PID, dirty}]++[{PID, clean}], EatRequests, Controller, ControllerRef);
+			TempTokens = Tokens--[{PID, clean}],
+			Temp2Tokens = TempTokens--[{PID, dirty}],
+			FinalTokens = Temp2Tokens ++ [{PID, clean}],
+			io:format("(~p) forks are now ~p~n", [node(), FinalTokens]),
+			hungry(Neighbors, FinalTokens, EatRequests, Controller, ControllerRef);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
@@ -123,14 +141,13 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef)
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
-			io:format("(~p) Received 'leave' message from ~p~n", [PID]),
+			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
 			leaving(Neighbors, PID, Ref)
 	end.
 
 % Sends a message to a list of philosophers (recursively) determined by auxiliary functions
 send_message([], Message) ->
 	ok;
-
 send_message(Receivers, Message) ->
 	Ref = make_ref(), % make a ref so I know I got a valid response back
 		if 
@@ -142,8 +159,8 @@ send_message(Receivers, Message) ->
 				send_message(tl(Receivers), Message);
 			true ->
 				PID = hd(Receivers),
-				io:format("(~p) sending message ~p to ~p~n", [node(), Message, PID]),
-				PID ! {self(), Ref, Message},
+				io:format("(~p) sending message ~p to ~p~n", [node(), Message, PID]), 
+				PID ! {self(), Ref, Message},				%% JAMES <- THIS SEEMS TO SEND AS IF IT WERE SOMEONE ELSE?
 				% and send the rest recursively
 				send_message(tl(Receivers), Message)
 		end.
@@ -214,6 +231,7 @@ thinking(Neighbors, Forks) ->
 
 % we have hungry neighbors and forks
 hungry([A|B], [C|D], [E|F], ControllerPID, ControllerRef) ->
+	io:format("(~p) Became hungry, with hungry neighbors~n", (node())),
 	% give up our forks where others have priority and are hungry
 	{ForksToGive, IDs} = priority([C|D], [E|F]),
 	case ForksToGive of
@@ -227,8 +245,10 @@ hungry([A|B], [C|D], [E|F], ControllerPID, ControllerRef) ->
 
 % we have no hungry neighbors
 hungry(Neighbors, Forks, [], ControllerPID, ControllerRef) ->
+	io:format("(~p) Became hungry, with no hungry neighbors~n", [node()]),
 	SizeN = len(Neighbors),
 	SizeF = len(Forks),
+
 	if 
 		SizeN == SizeF ->
 			% we have all the forks so we eat and notify the controller
@@ -263,6 +283,8 @@ len([_|T]) -> 1 + len(T).
 
 % returns a list of forks and IDs that have priority over us and are hungry
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% <- JAMES: NEED SOME ERROR CHECKING HERE. This crashes if either list is []
 priority([C|D], [E|F]) ->
 	% find all of the forks where we don't have priority
 	DirtyForks = remove_clean([C|D], []),
@@ -278,7 +300,6 @@ priority_helper_1([C|D], [E|F], ReturnForks, ReturnIDs) ->
 		{false, _} -> priority_helper_1(D, [E|F], ReturnForks, ReturnIDs)
 	end;
 priority_helper_1(_, _, ReturnForks, ReturnIDs) -> 
-	io:fwrite("Priority 1 Terminating\n"),
 	{ReturnForks, ReturnIDs}.
 
 % checks if the this single fork is in our hungry list
@@ -306,4 +327,10 @@ get_fork_ids([C|D]) ->
 	get_fork_ids(D) ++[get_id(C)].
 
 get_id({ID, _}) -> ID.
+
+make_dirty([]) ->
+	[];
+make_dirty([{PID, Status}|D]) ->
+	[{PID,dirty}] ++ make_dirty(D).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

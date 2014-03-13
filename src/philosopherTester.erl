@@ -39,21 +39,16 @@ send_command() ->
 		Command = list_to_atom(hd(Input)),
 		Philosopher = list_to_atom(hd(tl(Input))),
 	
-		io:format("Process ~p at node ~p sending message ~p to ~p~n", 
-				  [self(), node(), Command, Philosopher]),
+		io:format("(~p) Sending message ~p to ~p~n", [node(), Command, Philosopher]),
 		Ref = make_ref(), % make a ref so I know I got a valid response back
 		{philosopher, Philosopher} ! {self(), Ref, Command},
 		
 		% wait for response
 		receive
-			{Ref, eating} ->
-<<<<<<< HEAD
-				io:format("Got message from philosopher ~p: Eating!~n", [Ref]);
-			{Ref, gone} ->
-				io:format("Got message from philosopher ~p: Left!~n", [Ref])
-=======
-				io:format("Got message from philosopher ~p: Eating!~n", [Ref])
->>>>>>> 7358ba571fa28667078c6c2f0c376931bca72334
+			{NewRef, eating} ->
+				io:format("Got message from philosopher ~p: Eating!~n", [NewRef]);
+			{NewRef, gone} ->
+				io:format("Got message from philosopher ~p: Left!~n", [NewRef])
         after ?TIMEOUT -> io:format("Timed out waiting for reply!~n")
 		end,
 	
