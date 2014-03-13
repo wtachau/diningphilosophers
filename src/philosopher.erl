@@ -25,7 +25,7 @@ main(Params) ->
 	_ = os:cmd("epmd -daemon"),
 	net_kernel:start([list_to_atom(Name), shortnames]),
 	register(philosopher, self()),
-	io:format("Registered under philosopher at node ~p, waiting for messages.~n", [node()]),
+	io:format("Registered under philosopher at node ~p, (~p)waiting for messages.~n", [node()]),
 
 	% Initial join takes an empty list (confirmed neighbors), and Neighbors
 	joining(Neighbors, []).
@@ -68,8 +68,8 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 				% If I'm thinking, relinquish fork
 				thinking  -> 
 					% We don't know if fork is clean or dirty, so subtract both
-					Tokens = Tokens -- [{self(), clean}],
-					Tokens = Tokens -- [{self(), dirty}],
+					Tokens = Tokens -- [{node(), clean}],
+					Tokens = Tokens -- [{node(), dirty}],
 					thinking(Neighbors, Tokens);
 				% If I'm eating, stay eating and add to eat requests
 				eating -> 
@@ -100,12 +100,19 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
 send_message([], Message) ->
 	halt();
 send_message(Receivers, Message) ->
-		NodeName = hd(Receivers),
-		io:format("Process ~p sending message [~p] to ~p~n", [self(), Message, NodeName]),
-		Ref = make_ref(), % make a ref so I know I got a valid response back
-		{philosopher, NodeName} ! {self(), Ref, Message},
-		% and send the rest
-		send_message(tl(Receivers), Message).
+	Ref = make_ref(), % make a ref so I know I got a valid response back
+		if 
+			Message == eating ->
+				{philosopher, hd(Receivers)} ! {Ref, Message};
+			Message == gone ->
+				{philosopher, hd(Receivers)} ! {Ref, Message};
+			true ->
+				NodeName = hd(Receivers),
+				io:format("Process ~p sending message [~p] to ~p~n", [self(), Message, NodeName]),
+				{philosopher, NodeName} ! {self(), Ref, Message},
+				% and send the rest
+				send_message(tl(Receivers), Message)
+		end.
 
 % Wait for another join confirmation
 joining_listener(State, Neighbors, ConfirmedNeighbors) ->
