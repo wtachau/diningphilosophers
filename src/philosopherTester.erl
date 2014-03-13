@@ -47,9 +47,13 @@ send_command() ->
 		% wait for response
 		receive
 			{Ref, eating} ->
+<<<<<<< HEAD
 				io:format("Got message from philosopher ~p: Eating!~n", [Ref]);
 			{Ref, gone} ->
 				io:format("Got message from philosopher ~p: Left!~n", [Ref])
+=======
+				io:format("Got message from philosopher ~p: Eating!~n", [Ref])
+>>>>>>> 7358ba571fa28667078c6c2f0c376931bca72334
         after ?TIMEOUT -> io:format("Timed out waiting for reply!~n")
 		end,
 	
