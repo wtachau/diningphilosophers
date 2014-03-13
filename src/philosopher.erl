@@ -34,23 +34,25 @@ main(Params) ->
 %% Internal functions
 %% ===========================`=========================================	
 	
+% Two handle_message functions, since hungry needs to keep track of its controller
 
-% Handles a message sent to philosopher
+% Handles a message sent to philosopher (every state except hungry)
 handle_message(State, Neighbors, Tokens, EatRequests) ->
 	io:format("Waiting for message"),
 	receive
 		% CONTROLLER METHOD %
 		% Should only receive when thinking. Transition to hungry.
 		{PID, Ref, become_hungry} ->
-			send_message(Neighbors, eat_request),
 			io:format("Received 'become_hungry' check message from ~p~n", [PID]),
-			hungry(Neighbors, Tokens, EatRequests);
+			% first ask all neighbors for forks, and go to hungry
+			send_message(Neighbors, eat_request),
+			hungry(Neighbors, Tokens, EatRequests); %fixme: shouldn't this be []?
 		
 		% CONTROLLER METHOD %
-		% Should only receive when eating. Transition to eating.
+		% Should only receive when eating. Transition to thinking.
 		{PID, Ref, stop_eating} ->
 			io:format("Received 'stop_eating' check message from ~p~n", [PID]),
-			% send out forks to who asked for it
+			% send out forks to who asked for it, and go to thinking
 			send_message(EatRequests, give_fork),
 			thinking(Neighbors, Tokens -- EatRequests);
 		
@@ -65,8 +67,11 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 			case State of
 				% If I'm thinking, relinquish fork
 				thinking  -> 
-					thinking(Neighbors, Tokens); %fixme
-				% If I'm eating, add to eat requests
+					% We don't know if fork is clean or dirty, so subtract both
+					Tokens = Tokens -- [{self(), clean}],
+					Tokens = Tokens -- [{self(), dirty}],
+					thinking(Neighbors, Tokens);
+				% If I'm eating, stay eating and add to eat requests
 				eating -> 
 					eating(Neighbors, Tokens, EatRequests++PID)
 			end
@@ -75,7 +80,6 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 % Handles a message sent to philosopher (**only called when hungry!)
 handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
 	io:format("Waiting for message (with Controller ID)"),
-	
 	receive
 		% Was asked for a fork (also called above)
 		{PID, Ref, eat_request} ->
@@ -110,6 +114,7 @@ joining_listener(State, Neighbors, ConfirmedNeighbors) ->
 			joining(Neighbors, ConfirmedNeighbors++PID)
 	end.
 
+% need some leaving auxiliary here
 
 
 %%%% JAMES IMPLEMENTATION %%%
