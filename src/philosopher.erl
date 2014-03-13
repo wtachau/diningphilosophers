@@ -25,7 +25,7 @@ main(Params) ->
 	_ = os:cmd("epmd -daemon"),
 	net_kernel:start([list_to_atom(Name), shortnames]),
 	register(philosopher, self()),
-	io:format("Registered under philosopher at node ~p, (~p)waiting for messages.~n", [node()]),
+	io:format("Registered under philosopher at node ~p, waiting for messages.~n", [node()]),
 
 	% Initial join takes an empty list (confirmed neighbors), and Neighbors
 	joining(Neighbors, []).
@@ -62,6 +62,11 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 			io:format("Received 'leave' message from ~p~n", [PID]),
 			leaving(Neighbors, PID);
 		
+		% Confirm neighbor is joining
+		{PID, Ref, joining} ->
+			io:format("Received request to join as neighbor~n"),
+			handle_message(State, Neighbors++[node()], Tokens, EatRequests);
+		
 		% Received in thinking or eating
 		{PID, Ref, eat_request} ->
 			case State of
@@ -88,6 +93,11 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
 		% Was given a fork
 		{PID, Ref, give_fork} ->
 			hungry(Neighbors, Tokens++{PID, clean}, EatRequests, Controller);
+		
+		% Confirm neighbor is joining
+		{PID, Ref, joining} ->
+			io:format("Received request to join as neighbor~n"),
+			handle_message(State, Neighbors++[node()], Tokens, EatRequests, Controller);
 
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
@@ -108,8 +118,9 @@ send_message(Receivers, Message) ->
 				{philosopher, hd(Receivers)} ! {Ref, Message};
 			true ->
 				NodeName = hd(Receivers),
-				io:format("Process ~p sending message [~p] to ~p~n", [self(), Message, NodeName]),
+				io:format("Process ~p sending message ~p to ~p~n", [self(), Message, NodeName]),
 				{philosopher, NodeName} ! {self(), Ref, Message},
+				io:format("sent message"),
 				% and send the rest recursively
 				send_message(tl(Receivers), Message)
 		end.
@@ -142,12 +153,14 @@ joining([A|B], [Aa|Bb]) ->
 
 % we have no confirmed philosophers, so we send a message out asking for confirmation
 joining([A|B], _) ->
+	io:format("sending join message to ~p~n", [A]),
 	send_message([A|B], joining),
 	% now we listen with an empty list of confirmations
 	joining_listener(joining, [A|B], []);
 
 % this must be the first philosopher or we have sent all of our messages
 joining([], []) ->
+	io:format("first philosopher!~n"),
 	handle_message(thinking, [], [], []).
 
 % thinking -> thinking or hungry or leaving
