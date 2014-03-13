@@ -3,15 +3,13 @@
 
 
 -module(philosopherTester).
--define(TIMEOUT, 1000).
+-define(TIMEOUT, 5000).
 %% ====================================================================
 %% API functions
 %% ====================================================================
--export([main/1]).
+-export([main/0]).
 
-main(Params) ->
-	% get command line arguments
-	NodeName = list_to_atom(hd(Params)), % node name of server ("something@host")
+main() ->
 
 	%% IMPORTANT: Start the empd daemon!
 	_ = os:cmd("epmd -daemon"),
@@ -22,7 +20,7 @@ main(Params) ->
     net_kernel:start([list_to_atom("client" ++ integer_to_list(Micro)), 
         				  shortnames]),
 	
-	send_command(NodeName).
+	send_command().
 
 %% ====================================================================
 %% Internal functions
@@ -35,28 +33,28 @@ get_user_input( Prompt ) ->
     	string:strip( % remove line-feed from the end
       		io:get_line( Prompt), right, $\n)), " ").
 
-send_command(NodeName) -> 
+send_command() -> 
 	try 
 		Message = become_hungry,
 		
 	
 		Input = get_user_input(">>>:"),
 		Command = list_to_atom(hd(Input)),
-		Philosopher = hd(tl(Input)),
+		Philosopher = list_to_atom(hd(tl(Input))),
 	
 		io:format("Process ~p at node ~p sending message ~p to ~p~n", 
-				  [self(), node(), Command, NodeName]),
+				  [self(), node(), Command, Philosopher]),
 		Ref = make_ref(), % make a ref so I know I got a valid response back
-		{philosopher, NodeName} ! {self(), Ref, Message},
+		{philosopher, Philosopher} ! {self(), Ref, Message},
 		
 		% wait for response
 		receive
-			{Ref, remove} ->
-				io:format("Got message from server: Removed word~n")
-        after ?TIMEOUT -> io:format("Timed out waiting for reply!")
+			{Ref, eating} ->
+				io:format("Got message from philosopher ~p: Eating!~n", [Ref])
+        after ?TIMEOUT -> io:format("Timed out waiting for reply!~n")
 		end,
 	
-		send_command(NodeName)
+		send_command()
 	
 		%case get_user_input("Word:") of 
 		%	[] -> 
