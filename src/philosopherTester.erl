@@ -23,18 +23,18 @@ main(Params) ->
     net_kernel:start([list_to_atom("client" ++ integer_to_list(Micro)), 
         				  shortnames]),
 	
-	send_words(NodeName).
+	send_words(NodeName, ProcName).
 
 %% ====================================================================
 %% Internal functions
 %% ====================================================================
-send_words(NodeName) -> 
+send_words(NodeName, ProcName) -> 
 	try 
 		Message = become_hungry,
 		io:format("Process ~p at node ~p sending message ~p to ~p at ~p~n", 
-				  [self(), node(), Message, "philosopher", NodeName]),
+				  [self(), node(), Message, ProcName, NodeName]),
 		Ref = make_ref(), % make a ref so I know I got a valid response back
-		{"philosopher", NodeName} ! {self(), Ref, Message}
+		{ProcName, NodeName} ! {self(), Ref, Message}
 		%%receive
 		%%	{Ref, become_hungry} ->
 		%%		io:format("Got message from server: Correct!~n");
