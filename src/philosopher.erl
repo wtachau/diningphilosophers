@@ -110,7 +110,7 @@ send_message(Receivers, Message) ->
 				NodeName = hd(Receivers),
 				io:format("Process ~p sending message [~p] to ~p~n", [self(), Message, NodeName]),
 				{philosopher, NodeName} ! {self(), Ref, Message},
-				% and send the rest
+				% and send the rest recursively
 				send_message(tl(Receivers), Message)
 		end.
 
