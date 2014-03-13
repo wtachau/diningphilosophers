@@ -64,13 +64,18 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
 			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
-			leaving(Neighbors, PID);
+			leaving(Neighbors, PID, Ref);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
 			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
 			PID ! {self(), Ref, confirmed},
 			handle_message(State, Neighbors++[PID], Tokens, EatRequests);
+		
+		% One of its friends is leaving
+		{PID, Ref, gone} ->
+			io:format("(~p) Received notice that ~p is leaving~n", [node(), PID]),
+			handle_message(State, Neighbors--[PID], Tokens, EatRequests);
 		
 		% Received in thinking or eating
 		{PID, Ref, eat_request} ->
@@ -108,12 +113,17 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller) ->
 			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
 			PID ! {self(), Ref, confirmed},
 			handle_message(State, Neighbors++[PID], Tokens, EatRequests, Controller);
+		
+		% One of its friends is leaving
+		{PID, Ref, gone} ->
+			io:format("(~p) Received notice that ~p is leaving~n", [node(), PID]),
+			handle_message(State, Neighbors--[PID], Tokens, EatRequests, Controller);
 
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
 			io:format("(~p) Received 'leave' message from ~p~n", [PID]),
-			leaving(Neighbors, PID)
+			leaving(Neighbors, PID, Ref)
 	end.
 
 % Sends a message to a list of philosophers (recursively) determined by auxiliary functions
@@ -123,10 +133,12 @@ send_message(Receivers, Message) ->
 	Ref = make_ref(), % make a ref so I know I got a valid response back
 		if 
 			Message == eating ->
-				io:format("(~p) sending ** message ~p to ~p~n", [node(), Message, hd(Receivers)]),
+				io:format("(~p) sending message ~p to ~p~n", [node(), Message, hd(Receivers)]),
 				hd(Receivers) ! {Ref, Message};
-			Message == gone ->
-				hd(Receivers) ! {Ref, Message};
+			%Message == gone ->
+			%	io:format("(~p) sending message ~p to ~p~n", [node(), Message, hd(Receivers)]),
+			%	hd(Receivers) ! {Ref, Message},
+			%	send_message(tl(Receivers), Message);
 			% at this point we still have nodenames
 			Message == joining ->
 				NodeName = list_to_atom(hd(Receivers)),
@@ -228,8 +240,10 @@ eating(Neighbors, Forks, HungryNeighbors) ->
 % leaving -> leaving or gone
 
 % tell our neighbors and the controller that we are peacing
-leaving(Neighbors, ControllerID) ->
-	send_message(Neighbors++[ControllerID], gone). % will have to change how we send to neighbors, controller
+leaving(Neighbors, ControllerID, Ref) ->
+	io:format("(~p) sending leave message to controller~n",[node()]),
+	ControllerID ! {Ref, gone},
+	send_message(Neighbors, gone).
 
 % checks if the two lists are of equal length
 %equal([A|B], [C|D]) -> equal(B, D);
