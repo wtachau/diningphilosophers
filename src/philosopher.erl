@@ -38,17 +38,23 @@ main(Params) ->
 %% Internal functions
 %% ===========================`=========================================	
 	
+timestamp() ->
+    {_, _, Micros} = now(), 
+    {{YY, MM, DD}, {Hour, Min, Sec}} = calendar:now_to_local_time(now()),
+    list_to_atom(lists:concat([Hour, ":", Min, ":", Sec, ".", Micros])).
+
+
 % Two handle_message functions, since hungry needs to keep track of its controller
 
 % Handles a message sent to philosopher (every state except hungry)
 handle_message(State, Neighbors, Tokens, EatRequests) ->
-	io:format("(~p) is ~p, waiting for message..~n", [node(), State]),
-	io:format("(~p)'s forks are ~p~n", [node(), Tokens]),
+	io:format("(~p) State ~p, waiting for message..~n", [timestamp(), State]),
+	io:format("(~p) Forks are ~p~n", [timestamp(), Tokens]),
 	receive
 		% CONTROLLER METHOD %
 		% Should only receive when thinking. Transition to hungry.
 		{PID, Ref, become_hungry} ->
-			io:format("(~p) Received 'become_hungry' check message from ~p~n", [node(), PID]),
+			io:format("(~p) Received 'become_hungry' check message from ~p~n", [timestamp(), PID]),
 			% first ask all neighbors for forks, and go to hungry
 			send_message(Neighbors, eat_request),
 			hungry(Neighbors, Tokens, EatRequests, PID, Ref);
@@ -56,104 +62,104 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 		% CONTROLLER METHOD %
 		% Should only receive when eating. Transition to thinking.
 		{PID, Ref, stop_eating} ->
-			io:format("(~p) Received 'stop_eating' check message from ~p~n", [node(), PID]),
+			io:format("(~p) Received 'stop_eating' check message from ~p~n", [timestamp(), PID]),
 			% send out forks to who asked for it, and go to thinking
 			send_message(EatRequests, give_fork),
 
 			% turn all our forks dirty
 			DirtyTokens = make_dirty(Tokens),
-			io:format("(~p) all our forks: ~p~n", [node(), DirtyTokens]),
+			io:format("(~p) All our forks: ~p~n", [timestamp(), DirtyTokens]),
 
 			% Now get rid of those which have been asked for
 			{DeleteTokens, _} = priority(DirtyTokens, EatRequests),
-			io:format("(~p) Should get rid of these tokens: ~p~n", [node(), DeleteTokens]),
+			io:format("(~p) Should get rid of these tokens: ~p~n", [timestamp(), DeleteTokens]),
 			thinking(Neighbors, DirtyTokens -- DeleteTokens); %fixme: this doesn't do what we want
 		
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
-			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
+			io:format("(~p) Received 'leave' message from ~p~n", [timestamp(), PID]),
 			leaving(Neighbors, PID, Ref);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
-			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
+			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [timestamp(), PID]),
 			PID ! {self(), Ref, confirmed},
 			monitor(process, PID),
 			handle_message(State, Neighbors++[PID], Tokens++[{PID, clean}], EatRequests);
 		
 		% One of its friends is leaving
 		{PID, Ref, gone} ->
-			io:format("(~p) Received notice that ~p is leaving~n", [node(), PID]),
+			io:format("(~p) Received notice that ~p is leaving~n", [timestamp(), PID]),
 			NewTokens = Tokens -- [{PID, clean}] -- [{PID, dirty}],
 			handle_message(State, Neighbors--[PID], NewTokens, EatRequests);
 		
 		% Received in thinking or eating
 		{PID, Ref, eat_request} ->
-			io:format("(~p) received 'eat_request' from (~p)~n", [node(), PID]),
+			io:format("(~p) Received 'eat_request' from (~p)~n", [timestamp(), PID]),
 			case State of
 				% If I'm thinking, try to relinquish fork
 				thinking  -> 
 					% We don't know if fork is clean or dirty, so subtract both
-					io:format("(~p) is thinking, give up my fork ~p (<- may be dirty)~n", [node(), [{PID, clean}]]),
+					io:format("(~p) Thinking, give up my fork ~p (<- may be dirty)~n", [timestamp(), PID]),
 					TempTokens = Tokens -- [{PID, clean}],
 					FinalTokens = TempTokens -- [{PID, dirty}], 
-					io:format("(~p) forks are now ~p~n", [node(), FinalTokens]),
+					io:format("(~p) Forks are now ~p~n", [timestamp(), FinalTokens]),
 					send_message([PID], give_fork),
 					thinking(Neighbors, FinalTokens);
 				% If I'm eating, stay eating and add to eat requests
 				eating -> 
-					io:format("(~p) Received request for fork from ~p, but I'm eating~n", [node(), PID]),
+					io:format("(~p) Received request for fork from ~p, but I'm eating~n", [timestamp(), PID]),
 					eating(Neighbors, Tokens, EatRequests++[PID])
 			end;
 			
 		% a process died
 		{'DOWN', Ref, process, PID, Reason} ->
-			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [node(), PID, Reason]),
+			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [timestamp(), PID, Reason]),
 			handle_message(State, Neighbors--[PID], Tokens--[{PID, dirty}, {PID, clean}], EatRequests--[PID])
 	end.
 
 % Handles a message sent to philosopher (**only called when hungry!)
 handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef) ->
-	io:format("(~p) is ~p, waiting for message (with Controller ID)...~n", [node(), State]),
-	io:format("(~p) is hungry! Forks are ~p~n", [node(), Tokens]),
+	io:format("(~p) State ~p, waiting for message (with Controller ID)...~n", [timestamp(), State]),
+	io:format("(~p) Hungry! Forks are ~p~n", [timestamp(), Tokens]),
 	receive
 		% Was asked for a fork (also called above)
 		{PID, Ref, eat_request} ->
-			io:format("(~p) received 'eat_request' from (~p)~n", [node(), PID]),
+			io:format("(~p) Received 'eat_request' from (~p)~n", [timestamp(), PID]),
 			hungry(Neighbors, Tokens, EatRequests++[PID], Controller, ControllerRef);
 		
 		% Was given a fork
 		{PID, Ref, give_fork} ->												%% JAMES <- SOMEHOW THIS GETS THE WRONG PID?
-			io:format("(~p) received 'give_fork' from (~p)~n", [node(), PID]), 
+			io:format("(~p) Received 'give_fork' from (~p) Ref ~p~n", [timestamp(), PID, Ref]), 
 			% get rid of the fork and add it to avoid duplicates
 			TempTokens = Tokens--[{PID, clean}],
 			Temp2Tokens = TempTokens--[{PID, dirty}],
 			FinalTokens = Temp2Tokens ++ [{PID, clean}],
-			io:format("(~p) forks are now ~p~n", [node(), FinalTokens]),
+			io:format("(~p) Forks are now ~p~n", [timestamp(), FinalTokens]),
 			hungry(Neighbors, FinalTokens, EatRequests, Controller, ControllerRef);
 		
 		% Confirm neighbor is joining
 		{PID, Ref, joining} ->
-			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
+			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [timestamp(), PID]),
 			PID ! {self(), Ref, confirmed},
 			monitor(process, PID),
 			handle_message(State, Neighbors++[PID], Tokens++[{PID, clean}], EatRequests, Controller, ControllerRef);
 		
 		% One of its friends is leaving
 		{PID, Ref, gone} ->
-			io:format("(~p) Received notice that ~p is leaving~n", [node(), PID]),
+			io:format("(~p) Received notice that ~p is leaving~n", [timestamp(), PID]),
 			handle_message(State, Neighbors--[PID], Tokens--[{PID, clean}]--[{PID, dirty}], EatRequests, Controller, ControllerRef);
 
 		% CONTROLLER METHOD %
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
-			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
+			io:format("(~p) Received 'leave' message from ~p~n", [timestamp(), PID]),
 			leaving(Neighbors, PID, Ref);
 
 		% a process died
 		{'DOWN', Ref, process, PID, Reason} ->
-			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [node(), PID, Reason]),
+			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [timestamp(), PID, Reason]),
 			handle_message(State, Neighbors--[PID], Tokens--[{PID, dirty}, {PID, clean}], EatRequests--[PID], Controller, ControllerRef)
 	end.
 
@@ -165,13 +171,13 @@ send_message(Receivers, Message) ->
 		if 
 			Message == joining ->
 				NodeName = list_to_atom(hd(Receivers)),
-				io:format("(~p) sending message ~p to ~p~n", [node(), Message, NodeName]),
+				io:format("(~p) Sending message ~p to ~p~n", [timestamp(), Message, NodeName]),
 				{philosopher, NodeName} ! {self(), Ref, Message},
 				% and send the rest recursively
 				send_message(tl(Receivers), Message);
 			true ->
 				PID = hd(Receivers),
-				io:format("(~p) sending message ~p to ~p~n", [node(), Message, PID]), 
+				io:format("(~p) Sending message ~p to ~p (Ref ~p) ~n", [timestamp(), Message, PID, Ref]), 
 				PID ! {self(), Ref, Message},				%% JAMES <- THIS SEEMS TO SEND AS IF IT WERE SOMEONE ELSE?
 				% and send the rest recursively
 				send_message(tl(Receivers), Message)
@@ -183,10 +189,10 @@ send_message(ControllerPID, Ref, Message)->
 	% i.e get_hungry eventually eats and leaving is eventually gone
 	if
 		Message == eating ->
-			io:format("(~p) sending message ~p to ~p~n", [node(), Message, ControllerPID]),
+			io:format("(~p) Sending message ~p to ~p~n", [timestamp(), Message, ControllerPID]),
 			ControllerPID ! {Ref, Message};
 		Message == gone ->
-			io:format("(~p) sending message ~p to ~p~n", [node(), Message, ControllerPID]),
+			io:format("(~p) Sending message ~p to ~p~n", [timestamp(), Message, ControllerPID]),
 			ControllerPID ! {Ref, Message}
 	end.
 
@@ -216,7 +222,7 @@ joining([A|B], [Aa|Bb]) ->
 	if 
 		Size1 == Size2 ->
 			% we are now thinking; list of neighbors and empty list of forks and no fork requests
-			io:format("(~p) Confirmed from all neighbors, move to thinking~n~n", [node()]),
+			io:format("(~p) Confirmed from all neighbors, move to thinking~n~n", [timestamp()]),
 			handle_message(thinking, [Aa|Bb], [], []);
 		true -> 
 			joining_listener(joining, [A|B], [Aa|Bb])
@@ -244,12 +250,12 @@ thinking(Neighbors, Forks) ->
 
 % we have hungry neighbors and forks
 hungry([A|B], [C|D], [E|F], ControllerPID, ControllerRef) ->
-	io:format("(~p) Became hungry, with hungry neighbors~n", (node())),
+	io:format("(~p) Became hungry, with hungry neighbors~n", (timestamp())),
 	% give up our forks where others have priority and are hungry
 	{ForksToGive, IDs} = priority([C|D], [E|F]),
 	case ForksToGive of
 		[A|B] ->
-				send_message(IDs, fork),
+				send_message(IDs, give_fork),
 				% remove the forks and ID's from our list
 				handle_message(hungry, [A|B], [C|D]--ForksToGive, [E|F]--IDs, ControllerPID, ControllerRef)
 	end,
@@ -258,7 +264,7 @@ hungry([A|B], [C|D], [E|F], ControllerPID, ControllerRef) ->
 
 % we have no hungry neighbors
 hungry(Neighbors, Forks, [], ControllerPID, ControllerRef) ->
-	io:format("(~p) Became hungry, with no hungry neighbors~n", [node()]),
+	io:format("(~p) Became hungry, with no hungry neighbors~n", [timestamp()]),
 	SizeN = len(Neighbors),
 	SizeF = len(Forks),
 
