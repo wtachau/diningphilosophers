@@ -79,6 +79,7 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 		{PID, Ref, joining} ->
 			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
 			PID ! {self(), Ref, confirmed},
+			monitor(process, PID),
 			handle_message(State, Neighbors++[PID], Tokens++[{PID, clean}], EatRequests);
 		
 		% One of its friends is leaving
@@ -104,7 +105,12 @@ handle_message(State, Neighbors, Tokens, EatRequests) ->
 				eating -> 
 					io:format("(~p) Received request for fork from ~p, but I'm eating~n", [node(), PID]),
 					eating(Neighbors, Tokens, EatRequests++[PID])
-			end
+			end;
+			
+		% a process died
+		{'DOWN', Ref, process, PID, Reason} ->
+			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [node(), PID, Reason]),
+			handle_message(State, Neighbors--[PID], Tokens--[{PID, dirty}, {PID, clean}], EatRequests--[PID])
 	end.
 
 % Handles a message sent to philosopher (**only called when hungry!)
@@ -131,6 +137,7 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef)
 		{PID, Ref, joining} ->
 			io:format("(~p) Received request to join as neighbor, sending confirmation to ~p~n", [node(), PID]),
 			PID ! {self(), Ref, confirmed},
+			monitor(process, PID),
 			handle_message(State, Neighbors++[PID], Tokens++[{PID, clean}], EatRequests, Controller, ControllerRef);
 		
 		% One of its friends is leaving
@@ -142,7 +149,12 @@ handle_message(State, Neighbors, Tokens, EatRequests, Controller, ControllerRef)
 		% Can receive in anything other than joining. Leave ASAP.
 		{PID, Ref, leave} ->
 			io:format("(~p) Received 'leave' message from ~p~n", [node(), PID]),
-			leaving(Neighbors, PID, Ref)
+			leaving(Neighbors, PID, Ref);
+
+		% a process died
+		{'DOWN', Ref, process, PID, Reason} ->
+			io:format("(~p) Received a DOWN message from process ~p because ~p~n", [node(), PID, Reason]),
+			handle_message(State, Neighbors--[PID], Tokens--[{PID, dirty}, {PID, clean}], EatRequests--[PID], Controller, ControllerRef)
 	end.
 
 % Sends a message to a list of philosophers (recursively) determined by auxiliary functions
@@ -182,6 +194,7 @@ send_message(ControllerPID, Ref, Message)->
 joining_listener(State, Neighbors, ConfirmedNeighbors) ->
 	receive
  		{PID, Ref, confirmed} ->
+ 			monitor(process, PID),
 			joining(Neighbors, ConfirmedNeighbors++[PID])
 	end.
 
@@ -284,12 +297,17 @@ len([_|T]) -> 1 + len(T).
 % returns a list of forks and IDs that have priority over us and are hungry
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%% <- JAMES: NEED SOME ERROR CHECKING HERE. This crashes if either list is []
+% we don't have two non-empty lists so no forks need to be given away
+priority([], _) -> {[], []};
+priority(_, []) -> {[], []};
+
 priority([C|D], [E|F]) ->
 	% find all of the forks where we don't have priority
 	DirtyForks = remove_clean([C|D], []),
 	% return a list of dirty forks that are in our hungry list
 	priority_helper_1(DirtyForks, [E|F], [], []).
+
+
 
 % return forks where ID's are in our hungry list
 priority_helper_1([C|D], [E|F], ReturnForks, ReturnIDs) ->
