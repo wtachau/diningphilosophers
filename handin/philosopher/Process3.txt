@@ -1,0 +1,31 @@
+OUTPUT FOR PROCESS 3
+
+William-Tachaus-MacBook-Pro-2:src wtachau$ erl -noshell -run philosopher main zimmerman james@William-Tachaus-MacBook-Pro-2 willyt@William-Tachaus-MacBook-Pro-2 -run init stop -noshell
+
+Registered under philosopher at node 'zimmerman@William-Tachaus-MacBook-Pro-2', waiting for messages.
+('21:31:41.200702') Sending message joining to 'james@William-Tachaus-MacBook-Pro-2'
+('21:31:41.286111') Sending message joining to 'willyt@William-Tachaus-MacBook-Pro-2'
+('21:31:41.292670') Confirmed from all neighbors, move to thinking
+
+('21:31:41.293052') State thinking, waiting for message..
+('21:31:41.293245') Forks are []
+
+
+('21:32:19.210568') Received notice that <5409.2.0> is leaving
+('21:32:19.210824') State thinking, waiting for message..
+('21:32:19.211003') Forks are []
+('21:32:19.211150') Received a DOWN message from process <5409.2.0> because normal
+('21:32:19.211325') State thinking, waiting for message..
+('21:32:19.211484') Forks are []
+('21:32:32.32832') Received notice that <5307.2.0> is leaving
+('21:32:32.33254') State thinking, waiting for message..
+('21:32:32.33353') Forks are []
+('21:32:32.33491') Received a DOWN message from process <5307.2.0> because normal
+('21:32:32.33719') State thinking, waiting for message..
+('21:32:32.33864') Forks are []
+('21:32:35.541525') Received 'leave' message from <5410.2.0>
+('21:32:35.541879') Sending message gone to <5410.2.0>
+William-Tachaus-MacBook-Pro-2:src wtachau$ 
+
+
+

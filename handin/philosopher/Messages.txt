@@ -1,0 +1,26 @@
+MESSAGES SENT:
+
+William-Tachaus-MacBook-Pro-2:src wtachau$ erl -noshell -run philosopherTester main -run init stop -noshell
+
+>>>:become_hungry willyt@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message become_hungry to 'willyt@William-Tachaus-MacBook-Pro-2'
+Got message from philosopher #Ref<0.0.0.39>: Eating!
+
+>>>:become_hungry james@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message become_hungry to 'james@William-Tachaus-MacBook-Pro-2'
+
+>>>:stop_eating willyt@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message stop_eating to 'willyt@William-Tachaus-MacBook-Pro-2'
+Got message from philosopher #Ref<0.0.0.66>: Eating!
+
+>>>:leave willyt@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message leave to 'willyt@William-Tachaus-MacBook-Pro-2'
+Got message from philosopher #Ref<0.0.0.81>: Left!
+
+>>>:leave james@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message leave to 'james@William-Tachaus-MacBook-Pro-2'
+Got message from philosopher #Ref<0.0.0.85>: Left!
+
+>>>:leave zimmerman@William-Tachaus-MacBook-Pro-2
+('client917180@William-Tachaus-MacBook-Pro-2') Sending message leave to 'zimmerman@William-Tachaus-MacBook-Pro-2'
+Got message from philosopher #Ref<0.0.0.89>: Left!

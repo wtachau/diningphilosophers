@@ -18,9 +18,9 @@
 
 main(Params) ->
 
-	% Value that determines the number of storage processes in system
+	% First, value that determines the number of storage processes in system
 	M = hd(Params),
-	% The name to register with
+	% Next, the name to register with
 	Name = hd(tl(Params)),
 	% The next parameter, if there, is a node to get access to global set
 	% of registered processes
@@ -29,10 +29,10 @@ main(Params) ->
 	%% IMPORTANT: Start the empd daemon!
 	_ = os:cmd("epmd -daemon"),
 	net_kernel:start([list_to_atom(Name), shortnames]),
-	
-	io:format("~p Registered as node ~p~n", [timestamp(), node()]),
+	% register(philosopher, self()), necessary?
+	io:format("~p Registered as node ~p.~n", [timestamp(), node()]),
 
-	join_system(Name, M, Neighbor).
+	join_system(M, Neighbor).
 
 %% ====================================================================
 %% Internal functions
@@ -43,42 +43,8 @@ timestamp() ->
     {{_, _, _}, {Hour, Min, Sec}} = calendar:now_to_local_time(now()),
     lists:concat([Hour, ":", Min, ":", Sec, ".", Micros]).
 
-% If we are the first node in the system
-join_system(Name, M, []) ->
-	io:format("first node~n"),
-	global:register_name(list_to_atom(Name), self()),
-	io:format("~p I am ~p, connected to: ~p~n", [timestamp(), node(), nodes()]),
-	io:format("Other names... ~p~n", [global:registered_names()]),
 
-	% sit and wait (testing)
-	receive
-		{_} ->
-			io:format("...")
-	end;
-
-	% start and globally register 2^m storage processes
-
-% If there are >0 other nodes in the system
-join_system(Name, M, [N]) ->
-	Neighbor = list_to_atom(N),
-
-	% connect to existing node
-	Result = net_kernel:connect_node(Neighbor),
-	global:register_name(list_to_atom(Name), self()),
-	io:format("~p Connecting to ~p ... ~p ~n", [timestamp(), Neighbor, Result]),
-	io:format("~p I am ~p, connected to: ~p~n", [timestamp(), node(), nodes()]),
-	io:format("Other names... ~p~n", [global:registered_names()]).
-	% Pick a new node number, take its share of the processes
-
-
-
-
-
-
-
-
-
-
-
-
-
+join_system(M, []) ->
+	io:format("no neighbors~n");
+join_system(M, [Neighbor]) ->
+	io:format("one neighbor: ~p~n", [Neighbor]).

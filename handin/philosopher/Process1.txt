@@ -1,0 +1,52 @@
+OUTPUT FOR PROCESS 1
+
+
+William-Tachaus-MacBook-Pro-2:src wtachau$ erl -noshell -run philosopher main willyt -run init stop -noshell
+
+Registered under philosopher at node 'willyt@William-Tachaus-MacBook-Pro-2', waiting for messages.
+first philosopher!
+('21:31:3.328655') State thinking, waiting for message..
+('21:31:3.346203') Forks are []
+
+
+
+('21:31:9.638692') Received request to join as neighbor, sending confirmation to <5376.2.0>
+('21:31:9.638894') State thinking, waiting for message..
+('21:31:9.638988') Forks are [{<5376.2.0>,clean}]
+
+
+
+('21:31:23.289969') Received 'become_hungry' check message from <5380.2.0>
+('21:31:23.290146') Sending message eat_request to <5376.2.0> (Ref #Ref<0.0.0.63>) 
+('21:31:23.290231') Became hungry, with no hungry neighbors
+('21:31:23.290354') Sending message eating to <5380.2.0>
+('21:31:23.290422') State eating, waiting for message..
+('21:31:23.290654') Forks are [{<5376.2.0>,clean}]
+
+
+
+('21:31:34.178959') Received 'eat_request' from (<5376.2.0>)
+('21:31:34.179297') Received request for fork from <5376.2.0>, but I'm eating
+('21:31:34.179403') State eating, waiting for message..
+('21:31:34.179492') Forks are [{<5376.2.0>,clean}]
+
+
+
+('21:31:41.291373') Received request to join as neighbor, sending confirmation to <5391.2.0>
+('21:31:41.291815') State eating, waiting for message..
+('21:31:41.292096') Forks are [{<5376.2.0>,clean},{<5391.2.0>,clean}]
+('21:31:58.815756') Received 'stop_eating' check message from <5380.2.0>
+('21:31:58.816125') Sending message give_fork to <5376.2.0> (Ref #Ref<0.0.0.93>) 
+('21:31:58.816330') All our forks: [{<5376.2.0>,dirty},{<5391.2.0>,dirty}]
+('21:31:58.816579') Should get rid of these tokens: [{<5376.2.0>,dirty}]
+('21:31:58.816692') State thinking, waiting for message..
+('21:31:58.816892') Forks are [{<5391.2.0>,dirty}]
+
+
+
+('21:32:19.206649') Received 'leave' message from <5380.2.0>
+('21:32:19.207025') Sending message gone to <5380.2.0>
+('21:32:19.207215') Sending message gone to <5376.2.0> (Ref #Ref<0.0.0.101>) 
+('21:32:19.207481') Sending message gone to <5391.2.0> (Ref #Ref<0.0.0.103>) 
+William-Tachaus-MacBook-Pro-2:src wtachau$ 
+

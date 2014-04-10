@@ -1,0 +1,51 @@
+OUTPUT FOR PROCESS 2
+
+William-Tachaus-MacBook-Pro-2:src wtachau$ erl -noshell -run philosopher main james willyt@William-Tachaus-MacBook-Pro-2 -run init stop -noshell
+Registered under philosopher at node 'james@William-Tachaus-MacBook-Pro-2', waiting for messages.
+
+('21:31:9.580953') Sending message joining to 'willyt@William-Tachaus-MacBook-Pro-2'
+('21:31:9.639168') Confirmed from all neighbors, move to thinking
+
+('21:31:9.639394') State thinking, waiting for message..
+('21:31:9.639507') Forks are []
+
+
+
+('21:31:23.290642') Received 'eat_request' from (<5307.2.0>)
+('21:31:23.290794') Thinking, give up my fork <5307.2.0> (<- may be dirty)
+('21:31:23.290888') Forks are now []
+('21:31:23.291050') Sending message give_fork to <5307.2.0> (Ref #Ref<0.0.0.64>) 
+('21:31:23.291244') State thinking, waiting for message..
+('21:31:23.291409') Forks are []
+
+
+
+('21:31:34.178225') Received 'become_hungry' check message from <5418.2.0>
+('21:31:34.178398') Sending message eat_request to <5307.2.0> (Ref #Ref<0.0.0.76>) 
+('21:31:34.178589') Became hungry, with no hungry neighbors
+('21:31:34.178801') State hungry, waiting for message (with Controller ID)...
+('21:31:34.179056') Hungry! Forks are []
+
+
+
+('21:31:41.286198') Received request to join as neighbor, sending confirmation to <5424.2.0>
+('21:31:41.286648') State hungry, waiting for message (with Controller ID)...
+('21:31:41.286949') Hungry! Forks are [{<5424.2.0>,clean}]
+('21:31:58.816465') Received 'give_fork' from (<5307.2.0>) Ref #Ref<5307.0.0.93>
+('21:31:58.816787') Forks are now [{<5424.2.0>,clean},{<5307.2.0>,clean}]
+('21:31:58.817054') Became hungry, with no hungry neighbors
+('21:31:58.817124') Sending message eating to <5418.2.0>
+('21:31:58.817193') State eating, waiting for message..
+('21:31:58.817285') Forks are [{<5424.2.0>,clean},{<5307.2.0>,clean}]
+
+
+
+('21:32:19.209029') Received notice that <5307.2.0> is leaving
+('21:32:19.209400') State eating, waiting for message..
+('21:32:19.209578') Forks are [{<5424.2.0>,clean}]
+('21:32:19.209757') Received a DOWN message from process <5307.2.0> because normal
+('21:32:19.209928') State eating, waiting for message..
+('21:32:19.210105') Forks are [{<5424.2.0>,clean}]
+('21:32:32.31660') Received 'leave' message from <5418.2.0>
+('21:32:32.31824') Sending message gone to <5418.2.0>
+('21:32:32.31987') Sending message gone to <5424.2.0> (Ref #Ref<0.0.0.116>) 
