@@ -249,7 +249,7 @@ hungry([A|B], [C|D], [E|F], ControllerPID, ControllerRef) ->
 	{ForksToGive, IDs} = priority([C|D], [E|F]),
 	case ForksToGive of
 		[A|B] ->
-				send_message(IDs, fork),
+				send_message(IDs, give_fork),
 				% remove the forks and ID's from our list
 				handle_message(hungry, [A|B], [C|D]--ForksToGive, [E|F]--IDs, ControllerPID, ControllerRef)
 	end,
