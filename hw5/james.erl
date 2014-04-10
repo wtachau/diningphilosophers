@@ -47,7 +47,8 @@ storage_process(Dictionary, Process_Number, M)->
 					% our next process which receives a message
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
 					Msg = {PID, Ref, store, Key, Value},
-					send(Msg, Process_ID, storage_process)
+					send(Msg, Process_ID, storage_process),
+					storage_process(Dictionary, Process_Number, M)
 			end;
 			
 		% a dictionary value meant for backup on the correct node
@@ -62,7 +63,8 @@ storage_process(Dictionary, Process_Number, M)->
 				true ->
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
 					send(Msg, Process_ID, storage_proess)
-			end;
+			end,
+			storage_process(Dictionary, Process_Number, M);
 
 		% retrieve the value of a given key
 		{PID, Ref, retrieve, Key}-> 
@@ -75,24 +77,34 @@ storage_process(Dictionary, Process_Number, M)->
 					% the key is not on this process
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
 					send({PID, Ref, retrieve, Key}, Process_ID, storage_process)
-			end;
+			end,
+			storage_process(Dictionary, Process_Number, M);
 
 
 		% find the last key in lexicographic order
-		{PID, Ref, first_key}->
-			if
-				Process_Number == 0 ->
-					Return_Value = get_smallest;
-				true -> nothing
-			end;
+		{PID, Ref, first_key} ->
+			% creates one large dictionary from all storage processes
+			Snapshot = gather_snapshot(Dictionary, [], Process_Number, M, 0),
+			Snapshot_Sorted = lists:keysort(1, Snapshot),
+			{Key, _} = hd(Snapshot_Sorted),
+			PID ! {Ref, Key, result},
+			storage_process(Dictionary, Process_Number, M);
 
 		% find the last key in lexicographic order
 		{PID, Ref, last_key}->
-			nothing;
+			% creates one large dictionary from all storage processes
+			Snapshot = gather_snapshot(Dictionary, [], Process_Number, M, 0),
+			Snapshot_Sorted = lists:keysort(1, Snapshot),
+			{Key, _} = lists:last(Snapshot_Sorted),
+			PID ! {Ref, Key, result},
+			storage_process(Dictionary, Process_Number, M);
 
 		% number of keys currently stored in the system
 		{PID, Ref, num_keys}->
-			nothing;
+			% creates one large dictionary from all storage processes
+			Snapshot_Size = lists:length(gather_snapshot(Dictionary, [], Process_Number, M, 0)),
+			PID ! {Ref, Snapshot_Size, result},
+			storage_process(Dictionary, Process_Number, M);
 
 		% list of node numbers currently in the system
 		{PID, Ref, node_list}->
@@ -102,15 +114,28 @@ storage_process(Dictionary, Process_Number, M)->
 		{PID, Ref, leave}->
 			nothing;
 
-		{PID, Ref, collect}->
-			% calculate the number of the last node in the system
-			Arith = round(math:pow(2, M) - 1),
-			if
-				Process_Number == Arith ->
-					nothing;
-				true ->
-					nothing
-			end
+		% send the dictionary to the collector
+		{PID, Ref, Collector_Number, snapshot} ->
+			Msg = {PID, Ref, Collector_Number, snapshot},
+			Total_Storage_Processes = round(math:pow(2, M)),
+			Recipient = Process_Number + 1 rem Total_Storage_Processes,
+			send(Msg, Recipient, storage_process),
+			send_dictionary(Dictionary, Collector_Number)
+	end.
+
+gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received)->
+	Total_Storage_Processes = round(math:pow(2, M)),
+
+	if
+		Total_Received == Total_Storage_Processes ->
+			Snapshot++Dictionary;
+		true-> ok
+	end,
+	receive
+		{Item, dict_item} ->
+			gather_snapshot(Dictionary, Snapshot++[Item], Process_Number, M, Total_Received);
+		{complete} ->
+			gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received + 1)
 	end.
 
 
@@ -174,6 +199,17 @@ send(Msg, Number, node)->
 send(Msg, Number, storage_process)->
 	Name = list_to_atom("StorageProcess"++integer_to_list(Number)),
 	global:send(Name, Msg).
+
+% tell the collector that we have finished sending our dictionary
+send_dictionary([], Collector_Number) -> 
+	send({complete}, Collector_Number, storage_process);
+
+% send dictionary items one by one to the collector
+send_dictionary(Dictionary, Collector_Number) ->
+	send({hd(Dictionary), dict_item}, Collector_Number, storage_process),
+	send_dictionary(tl(Dictionary), Collector_Number).
+
+
 
 
 
