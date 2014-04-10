@@ -1,0 +1,6 @@
+-- How we get first_key, num_keys, etc.
+	** Distributed snapshots
+
+-- How we store data for backups, efficiently
+
+-- Process of rebalancing
