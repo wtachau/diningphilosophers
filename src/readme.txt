@@ -17,3 +17,5 @@ We also implemented the extra credit, where neighbors detect unexpected terminat
 We have also included our sample test program, philosopherTester, which could be used as such:
 erl -noshell -run philosopherTester main -run init stop -noshell
 >>>:<message> <nodeName>
+
+We have included sample output for a series of commands in files Process1.txt, Process2.txt, and Process3.txt. Commands sent are in Messages.txt.
