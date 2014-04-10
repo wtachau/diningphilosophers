@@ -44,7 +44,7 @@ storage_process(List, Process_Number, M)->
 		{Name, takeover} ->
 			% find the non-storage node before the one who sent takeover
 			PrevNode = get_prev_node(Name),
-			NextNodeNum = get_next_node_num(Name),
+			NextNodeNum = get_next_node_num(Name), % this, minus 1, will be our last process
 			io:format("I am proc ~p, was owned by ~p (~p) ~n",[Process_Number, PrevNode, NextNodeNum]),
 			% send that node my Dict
 			global:send(PrevNode, {imdying, List, Process_Number, Name}),
@@ -52,7 +52,10 @@ storage_process(List, Process_Number, M)->
 			% If i'm the last, send special message
 			if 
 				NextNodeNum == (Process_Number + 1) rem M2 ->
-					global:send(PrevNode, {dump, List, Process_Number, Name});
+
+					% Find the node who was storing backup data, and tell them not to store my data
+					BackupNode = get_prev_node(PrevNode),
+					global:send(PrevNode, {dump, List, Process_Number, Name, BackupNode});
 				true ->
 					ok
 			end,
@@ -74,11 +77,11 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			non_storage_process(BackupDict, NewBackupDict++List, M);
 			
 		% Last process of a group that are leaving
-		{dump, List, Process_Number, NewNode} ->
+		{dump, List, Process_Number, NewNode, BackupNode} ->
 			% send new node its backup data
 			global:send(NewNode, {sendbackup, BackupDict}),
-			% tell last backup to delete its backup
-			%.....
+			% Find the node who was storing backup data, and tell them not to store my data
+			global:send(BackupNode, {erasebackup, NewBackupDict}),
 			% its new backup is whatever processes are dying
 			non_storage_process(NewBackupDict, [], M);
 
@@ -92,6 +95,10 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			spawn(?MODULE, storage_start, [Process_Number, M]),
 			% do something with List, which is proc's info
 			non_storage_process(BackupDict, [], M);
+
+		% Delete certain key/values from your backup data
+		{erasebackup, List} ->
+			non_storage_process(BackupDict--List, NewBackupDict, M);
 
 		{Ref, {Key, Value}, backup} ->
 			io:format("backing up...")
