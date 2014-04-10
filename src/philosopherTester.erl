@@ -53,28 +53,6 @@ send_command() ->
 		end,
 	
 		send_command()
-	
-		%case get_user_input("Word:") of 
-		%	[] -> 
-		%		"end";
-		%	W -> 
-		%		test_word(Dict)
-		%end.
-		%%receive
-		%%	{Ref, become_hungry} ->
-		%%		io:format("Got message from server: Correct!~n");
-		%%	{Ref, incorrect, Suggestions} ->
-		%%		io:format("Got message from server: Incorrect.~n"),
-		%%		io:format("Suggestions: "),
-		%%		lists:map(fun(L)-> io:format(L), io:format(", ") end, Suggestions),
-		%%		io:format("~n");
-		%%	{Ref, add} ->
-		%%		io:format("Got message from server: Added word~n");
-		%%	{Ref, remove} ->
-		%%		io:format("Got message from server: Removed word~n")
-        %%after ?TIMEOUT -> io:format("Timed out waiting for reply!")
-		%%end,
-		%%send_words(ProcName, NodeName, tl(Words))
 	catch
 		_:_ -> io:format("Error parsing command line parameters or resolving node name.~n")
 	end.
