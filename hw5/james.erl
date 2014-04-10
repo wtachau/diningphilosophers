@@ -50,6 +50,7 @@ storage_process(Dictionary, Process_Number, M)->
 					send(Msg, Process_ID, storage_process),
 					storage_process(Dictionary, Process_Number, M)
 			end;
+			
 		% a dictionary value meant for backup on the correct node
 		{PID, Ref, backup, Key, Value}->
 			Send_To = hash(Key, 0, M),
@@ -138,15 +139,7 @@ gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received)->
 			gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received + 1)
 	end.
 
-% return a mod of our hash value
-hash([], Total, M) -> 
-	Return = Total rem round(math:pow(2, M) - 1),
-	Return;
 
-% returns the hash value based on our global M
-hash(String, Total, M) ->
-	Arith = hd(String) + round(math:pow(2, 6)) + round(math:pow(2, 16)) - Total,
-	hash(tl(String), Arith + Total, M).
 
 
 get_value([], Key) -> no_value;
