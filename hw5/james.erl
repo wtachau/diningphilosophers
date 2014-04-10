@@ -108,11 +108,12 @@ storage_process(Dictionary, Process_Number, M)->
 
 		% list of node numbers currently in the system
 		{PID, Ref, node_list}->
-			nothing;
+			Result = get_node_list(0, M, []),
+			PID ! {Ref, Result, result};
 
 		% sent from the controller to leave the system
 		{PID, Ref, leave}->
-			nothing;
+			ok;
 
 		% send the dictionary to the collector
 		{PID, Ref, Collector_Number, snapshot} ->
@@ -144,10 +145,6 @@ gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received)->
 get_value([], Key) -> no_value;
 
 get_value(Dictionary, Key) -> no_value.
-
-get_smallest([]) -> no_value;
-
-get_smallest(Dictionary) -> 0. 
 
 % returns the node number that a storage process should send the message to for greatest efficiency
 % Start Node: the node sending the message
@@ -208,6 +205,22 @@ send_dictionary([], Collector_Number) ->
 send_dictionary(Dictionary, Collector_Number) ->
 	send({hd(Dictionary), dict_item}, Collector_Number, storage_process),
 	send_dictionary(tl(Dictionary), Collector_Number).
+
+get_node_list(Index, M, Node_List) ->
+	Node_Number = get_node(Index, M),
+	Total = round(math:pow(2, M) - 1),
+	if 
+		Index == Node_Number ->
+			% add the node to the list
+			get_node_list(Index + 1, M, Node_List++[Index]);
+		% we reached the end
+		Index >= Total ->
+			ok;
+		true -> 
+			get_node_list(Index + 1, M, Node_List)
+	end.
+
+
 
 
 
