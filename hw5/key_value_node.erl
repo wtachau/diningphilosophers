@@ -67,16 +67,18 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			
 			io:format("time to delete ~p~n", [Process_Number]),
 
-			% Accumulate Dicts from dying processes - these will be the new backup
-			non_storage_process(BackupDict, NewBackupDict++List, M);
-
 			% send new node dicts to populate storage processes
 			global:send(NewNode, {makeproc, List, Process_Number}),
+
+			% Accumulate Dicts from dying processes - these will be the new backup
+			non_storage_process(BackupDict, NewBackupDict++List, M);
 			
 		% Last process of a group that are leaving
 		{dump, List, Process_Number, NewNode} ->
 			% send new node its backup data
 			global:send(NewNode, {sendbackup, BackupDict}),
+			% tell last backup to delete its backup
+			%.....
 			% its new backup is whatever processes are dying
 			non_storage_process(NewBackupDict, [], M);
 
@@ -89,6 +91,7 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			% start that process as your own
 			spawn(?MODULE, storage_start, [Process_Number, M]),
 			% do something with List, which is proc's info
+			non_storage_process(BackupDict, [], M);
 
 		{Ref, {Key, Value}, backup} ->
 			io:format("backing up...")
@@ -98,7 +101,6 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 get_prev_node(NodeName) ->
 	AllNames = global:registered_names(),
 	AllNodeNums = get_all_nums(AllNames),
-	io:format("~p~n", [NodeName]),
 	CurIndex = [list_to_integer(string:substr(atom_to_list(NodeName), 5, 1))],
 	Length = len(AllNodeNums),
 	PrevIndex = (string:str(AllNodeNums, [CurIndex]) - 1),
@@ -145,7 +147,7 @@ join_system(Name, M, []) ->
 	spawn_proc(round(math:pow(2,list_to_integer(M))), M),
 
 	% Now behave as non-storage process
-	non_storage_process([], M);
+	non_storage_process([], [], M);
 
 % If there are >0 other nodes in the system
 join_system(Name, M, [N]) ->
@@ -175,7 +177,7 @@ join_system(Name, M, [N]) ->
 	ProcessesToTake = get_processes_to_take(NewNodeNum, NextNum, M2),
 	take_processes(ProcessesToTake, MyName),
 	% And behave as non storage node
-	non_storage_process([], M).
+	non_storage_process([], [], M).
 
 % Calculate which processes to take
 get_processes_to_take(Start, Finish, Total) ->
