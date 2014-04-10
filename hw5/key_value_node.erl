@@ -11,7 +11,7 @@
 %% ====================================================================
 %% API functions
 %% ====================================================================
--export([main/1, storage_start/2, spawn_proc/2]).
+-export([main/1, storage_start/3, spawn_proc/2]).
 
 main(Params) ->
 
@@ -32,10 +32,10 @@ main(Params) ->
 	join_system(Name, M, Neighbor).
 
 % Storage processes start here
-storage_start(Process_Number, M) ->
+storage_start(List, Process_Number, M) ->
 	global:register_name(list_to_atom("StorageProcess"++integer_to_list(Process_Number)), self()),
-	io:format("process ~p started  at ~p~n", [Process_Number, self()]),
-	storage_process([], Process_Number, M).
+	io:format("process ~p started at ~p with List ~p~n", [Process_Number, self(), List]),
+	storage_process(List, Process_Number, M).
 
 % Continuous listening method for storage processes
 storage_process(List, Process_Number, M)->
@@ -59,7 +59,37 @@ storage_process(List, Process_Number, M)->
 				true ->
 					ok
 			end,
-			io:format("Process #~p on node ~p has been taken over from ~p! Dying now...~n", [Process_Number, node(), Name])
+			io:format("Process #~p on node ~p has been taken over from ~p! Dying now...~n", [Process_Number, node(), Name]);
+
+		% Receive a message after being spawned with dict values
+		{store, NewList} ->
+			io:format("Process ~p's new list is ~p~n", [Process_Number, NewList]),
+			storage_process(NewList, Process_Number, M);
+
+		% store a value for our key, msg the controller,
+		{PID, Ref, store, Key, Value}->
+			io:format("trying to set ~p:~p~n", [Key, Value]),
+			Send_To = hash(Key, 0, M),
+			if 
+				Send_To == Process_Number->
+					% send the old value to the controller
+					Old_Value = get_value(List, Key),
+					PID ! {Ref, stored, Old_Value},
+					% find our backup node and send a message to that process to backup our data
+					% finds intermediate node to pass message to if we can't make it in one hop
+					Process_ID = recipient(Process_Number, get_backup_node(Process_Number, M), 0, M),
+					Msg = {self(), make_ref(), backup, Key, Value},
+					send(Msg, Process_ID, storage_process),
+					% update the storage process
+					storage_process(List--[{Key, Old_Value}]++[{Key, Value}], Process_Number, M);
+
+				% the storage process does not have the key
+				true ->
+					% our next process which receives a message
+					Process_ID = recipient(Process_Number, Send_To, 0, M),
+					Msg = {PID, Ref, store, Key, Value},
+					send(Msg, Process_ID, storage_process)
+			end
 	end.
 
 % Non-storage processes listen here
@@ -92,8 +122,8 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 		% Start new processes, give them appropriate info
 		{makeproc, List, Process_Number} ->
 			% start that process as your own
-			spawn(?MODULE, storage_start, [Process_Number, M]),
-			% do something with List, which is proc's info
+			spawn(?MODULE, storage_start, [List, Process_Number, M]),
+			% continue receiving messages
 			non_storage_process(BackupDict, [], M);
 
 		% Delete certain key/values from your backup data
@@ -139,9 +169,8 @@ spawn_proc(0, _) ->
 	AllNames = global:registered_names(),
 	io:format("All names in registry... ~p~n", [AllNames]);
 spawn_proc(N, M) ->
-	spawn(?MODULE, storage_start, [N, M]),
+	spawn(?MODULE, storage_start, [[], N, M]),
 	spawn_proc(N-1, M).
-
 
 
 % If we are the first node in the system
@@ -233,6 +262,76 @@ take_processes(Processes, MyName) ->
 	take_processes(tl(Processes), MyName).
 
 
+% return a mod of our hash value
+hash([], Total, M) -> 
+	Return = Total rem round(math:pow(2, list_to_integer(M)) - 1),
+	Return;
+
+% returns the hash value based on our global M
+hash(String, Total, M) ->
+	Arith = hd(String) + round(math:pow(2, 6)) + round(math:pow(2, 16)) - Total,
+	hash(tl(String), Arith + Total, M).
+
+get_value([], Key) -> no_value;
+
+get_value(Dictionary, Key) -> no_value.
+
+get_smallest([]) -> no_value;
+
+get_smallest(Dictionary) -> 0. 
+
+% returns the node number that a storage process should send the message to for greatest efficiency
+% Start Node: the node sending the message
+% End Node: the node receiving the message
+% K: our current add value 2^k, which starts at 0
+% M: the exponent M for how many nodes in the system
+recipient(Start_Node, End_Node, K, M) ->
+	% if we are less than the start and greater than the end, we have gone too far!
+	Arith = round(math:pow(2, K)),
+	Distance = abs(Start_Node - End_Node),
+	io:format("Arithetic: ~p, Distance: ~p~n", [Arith, Distance]),
+	% if our added exponent is greater than the distance, we have gone too far!
+	Test = Arith > Distance,
+
+	if
+		Test ->
+				% our previous answer was the correct one
+				(Start_Node + round(math:pow(2, K - 1)) rem round(math:pow(2, list_to_integer(M))));
+		true->  
+				% we keep searching
+				recipient(Start_Node, End_Node, K + 1, M)
+	end.
+
+
+% finds the index that the process belongs to
+get_node(Process_Number, Mstr) ->
+	M = list_to_integer(Mstr),
+	Arith = (Process_Number + round(math:pow(2,M))) rem round(math:pow(2,M)),
+	io:format("Arith String: ~p~n", [Arith]),
+	Name = list_to_atom("Node"++integer_to_list(Arith)),
+	case global:whereis_name(Name) of
+		undefined ->
+			get_node(Process_Number - 1, M);
+		PID ->
+			Process_Number
+	end.
+
+% finds the node that is backing up a processes' information
+get_backup_node(Process_Number, Mstr)->
+	M = list_to_integer(Mstr),
+	Node_Number = get_node(Process_Number, M),
+	Arith = (Node_Number - 1 + round(math:pow(2,M))) rem round(math:pow(2,M)),
+	get_node(Arith, M).
+
+
+% sends a message using our global table
+send(Msg, Number, node)->
+	Name = list_to_atom("Node"++integer_to_list(Number)),
+	global:send(Name, Msg);
+
+send(Msg, Number, storage_process)->
+	Name = list_to_atom("StorageProcess"++integer_to_list(Number)),
+	global:send(Name, Msg).
 
 
 
