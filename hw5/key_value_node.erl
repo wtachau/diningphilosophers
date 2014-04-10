@@ -68,7 +68,6 @@ storage_process(List, Process_Number, M)->
 
 		% store a value for our key, msg the controller,
 		{PID, Ref, store, Key, Value}->
-			io:format("trying to set ~p:~p~n", [Key, Value]),
 			Send_To = hash(Key, 0, M),
 			if 
 				Send_To == Process_Number->
@@ -88,8 +87,80 @@ storage_process(List, Process_Number, M)->
 					% our next process which receives a message
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
 					Msg = {PID, Ref, store, Key, Value},
-					send(Msg, Process_ID, storage_process)
-			end
+					send(Msg, Process_ID, storage_process),
+					storage_process(List, Process_Number, M)
+			end;
+
+		% a dictionary value meant for backup on the correct node
+		{PID, Ref, backup, Key, Value}->
+			Send_To = hash(Key, 0, M),
+			Node_ID = get_node(Process_Number, M),
+			Msg = {self(), Ref, backup, Key, Value},
+			if  % this process is in the same node so we send to our non-storage process
+				Send_To == Node_ID ->
+					send(Msg, Node_ID, node);
+				% the backup node is not on the node of the process so we forward
+				true ->
+					Process_ID = recipient(Process_Number, Send_To, 0, M),
+					send(Msg, Process_ID, storage_proess)
+			end,
+			storage_process(List, Process_Number, M);
+
+		% retrieve the value of a given key
+		{PID, Ref, retrieve, Key}-> 
+			Send_To = hash(Key, 0, M),
+			if  % the key we want to retrieve is on this process
+				Send_To == Process_Number ->
+					Return_Value = get_value(List, Key),
+					PID ! {Ref, Return_Value, result};
+				true ->
+					% the key is not on this process
+					Process_ID = recipient(Process_Number, Send_To, 0, M),
+					send({PID, Ref, retrieve, Key}, Process_ID, storage_process)
+			end,
+			storage_process(List, Process_Number, M);
+
+
+		% find the last key in lexicographic order
+		{PID, Ref, first_key} ->
+			% creates one large dictionary from all storage processes
+			Snapshot = gather_snapshot(List, [], Process_Number, M, 0),
+			Snapshot_Sorted = lists:keysort(1, Snapshot),
+			{Key, _} = hd(Snapshot_Sorted),
+			PID ! {Ref, Key, result},
+			storage_process(List, Process_Number, M);
+
+		% find the last key in lexicographic order
+		{PID, Ref, last_key}->
+			% creates one large dictionary from all storage processes
+			Snapshot = gather_snapshot(List, [], Process_Number, M, 0),
+			Snapshot_Sorted = lists:keysort(1, Snapshot),
+			{Key, _} = lists:last(Snapshot_Sorted),
+			PID ! {Ref, Key, result},
+			storage_process(List, Process_Number, M);
+
+		% number of keys currently stored in the system
+		{PID, Ref, num_keys}->
+			% creates one large dictionary from all storage processes
+			Snapshot_Size = lists:length(gather_snapshot(List, [], Process_Number, M, 0)),
+			PID ! {Ref, Snapshot_Size, result},
+			storage_process(List, Process_Number, M);
+
+		% list of node numbers currently in the system
+		{PID, Ref, node_list}->
+			nothing;
+
+		% sent from the controller to leave the system
+		{PID, Ref, leave}->
+			nothing;
+
+		% send the dictionary to the collector
+		{PID, Ref, Collector_Number, snapshot} ->
+			Msg = {PID, Ref, Collector_Number, snapshot},
+			Total_Storage_Processes = round(math:pow(2, M)),
+			Recipient = Process_Number + 1 rem Total_Storage_Processes,
+			send(Msg, Recipient, storage_process),
+			send_dictionary(List, Collector_Number)
 	end.
 
 % Non-storage processes listen here
@@ -332,6 +403,31 @@ send(Msg, Number, node)->
 send(Msg, Number, storage_process)->
 	Name = list_to_atom("StorageProcess"++integer_to_list(Number)),
 	global:send(Name, Msg).
+
+gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received)->
+	Total_Storage_Processes = round(math:pow(2, M)),
+
+	if
+		Total_Received == Total_Storage_Processes ->
+			Snapshot++Dictionary;
+		true-> ok
+	end,
+	receive
+		{Item, dict_item} ->
+			gather_snapshot(Dictionary, Snapshot++[Item], Process_Number, M, Total_Received);
+		{complete} ->
+			gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received + 1)
+	end.
+
+% tell the collector that we have finished sending our dictionary
+send_dictionary([], Collector_Number) -> 
+	send({complete}, Collector_Number, storage_process);
+
+% send dictionary items one by one to the collector
+send_dictionary(Dictionary, Collector_Number) ->
+	send({hd(Dictionary), dict_item}, Collector_Number, storage_process),
+	send_dictionary(tl(Dictionary), Collector_Number).
+
 
 
 
