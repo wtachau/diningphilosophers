@@ -375,7 +375,7 @@ join_system(_, M, [N]) ->
 	global:register_name(MyName, self()),
 
 	% find the node we want to follow
-	NumToFollow = get_next_node_num(NewNodeNum),
+	NumToFollow = get_next_node_num(MyName),
 	NodeName = list_to_atom("Node"++integer_to_list(NumToFollow)),
 	PID = global:whereis_name(NodeName),
 	monitor(process, PID),
