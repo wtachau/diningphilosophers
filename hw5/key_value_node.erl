@@ -158,11 +158,11 @@ storage_process(List, Process_Number, M)->
 			storage_process(List, Process_Number, M);
 
 		% list of node numbers currently in the system
-		{PID, Ref, node_list}->
+		{_, _, node_list}->
 			storage_process(List, Process_Number, M);
 
 		% sent from the controller to leave the system
-		{PID, Ref, leave}->
+		{_, _, leave}->
 			storage_process(List, Process_Number, M);
 
 		% first collector - send out snapshot messages
@@ -207,7 +207,7 @@ storage_process(List, Process_Number, M)->
 	end.
 
 % Non-storage processes listen here
-non_storage_process(BackupDict, NewBackupDict, M) ->
+non_storage_process(BackupDict, NewBackupDict, M, Name) ->
 	receive
 		% From a storage process "going out of business"
 		{imdying, List, Process_Number, NewNode} ->
@@ -216,7 +216,7 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			global:send(NewNode, {makeproc, List, Process_Number}),
 
 			% Accumulate Dicts from dying processes - these will be the new backup
-			non_storage_process(BackupDict, NewBackupDict++List, M);
+			non_storage_process(BackupDict, NewBackupDict++List, M, Name);
 			
 		% Last process of a group that are leaving
 		{dump, __, __, NewNode, BackupNode} ->
@@ -225,25 +225,39 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 			% Find the node who was storing backup data, and tell them not to store my data
 			global:send(BackupNode, {erasebackup, NewBackupDict}),
 			% its new backup is whatever processes are dying
-			non_storage_process(NewBackupDict, [], M);
+			non_storage_process(NewBackupDict, [], M, Name);
 
 		% Given a new backup dict
 		{sendbackup, Dict} ->
-			non_storage_process(Dict, [], M);
+			non_storage_process(Dict, [], M, Name);
 
 		% Start new processes, give them appropriate info
 		{makeproc, List, Process_Number} ->
 			% start that process as your own
 			spawn(?MODULE, storage_start, [List, Process_Number, M]),
 			% continue receiving messages
-			non_storage_process(BackupDict, [], M);
+			non_storage_process(BackupDict, [], M, Name);
 
 		% Delete certain key/values from your backup data
 		{erasebackup, List} ->
-			non_storage_process(BackupDict--List, NewBackupDict, M);
+			non_storage_process(BackupDict--List, NewBackupDict, M, Name);
 
-		{PID, Ref, backup, Key, Value}->
-			non_storage_process(BackupDict++[{Key,Value}], NewBackupDict, M)
+		% create new processes and give them their data
+		{'DOWN', _, process, PID, _} ->
+			DownNode = get_next_node_num(Name),
+			DownName = list_to_atom("Node"++integer_to_list(DownNode)),
+			MonitorNode = get_next_node_num(DownName),
+			MonitorNodeName = list_to_atom("Node"++integer_to_list(MonitorNode)),
+			PID = global:whereis_name(MonitorNodeName),
+			monitor(process, PID),
+			% grab the fallen node's processes
+			ProcessesToTake = get_processes_to_take(DownNode, MonitorNode, M),
+			spawn_proc_list(ProcessesToTake, M),
+			timer:sleep(1000),
+			store_dictionary(BackupDict, hd(ProcessesToTake));
+
+		{_, _, backup, Key, Value}->
+			non_storage_process(BackupDict++[{Key,Value}], NewBackupDict, M, Name)
 	end.
 
 
@@ -271,6 +285,16 @@ send_dictionary([], Collector) ->
 send_dictionary(Dictionary, Collector) ->
 	global:send(Collector, {dict_item, hd(Dictionary)}),
 	send_dictionary(tl(Dictionary), Collector).
+
+% send dictionary piece by piece to a process to store
+store_dictionary([], _) -> ok;
+store_dictionary(Dictionary, Name)->
+	{Key, Value} = hd(Dictionary),
+	Msg = {self(), make_ref(), store, Key, Value},
+	send(Msg, Name, storage_process),
+	store_dictionary(tl(Dictionary), Name).
+
+
 
 % get the node before this one
 get_prev_node(NodeName) ->
@@ -303,15 +327,22 @@ timestamp() ->
     lists:concat([Hour, ":", Min, ":", Sec, ".", Micros]).
 
 spawn_proc(-1, _) ->
-	timer:sleep(1000), % necessary.
-	AllNames = global:registered_names();
+	timer:sleep(1000); % necessary.
+
 spawn_proc(N, M) ->
 	spawn(?MODULE, storage_start, [[], N, M]),
 	spawn_proc(N-1, M).
 
+spawn_proc_list([], _) ->
+	timer:sleep(1000);
+
+spawn_proc_list(Number_List, M) ->
+	spawn(?MODULE, storage_start, [[], hd(Number_List), M]),
+	spawn_proc_list(tl(Number_List), M).
+
 
 % If we are the first node in the system
-join_system(Name, M, []) ->
+join_system(_, M, []) ->
 
 	% Register myself
 	global:register_name(list_to_atom("Node0"), self()),
@@ -320,10 +351,10 @@ join_system(Name, M, []) ->
 	spawn_proc(round(math:pow(2,list_to_integer(M))-1), M),
 
 	% Now behave as non-storage process
-	non_storage_process([], [], M);
+	non_storage_process([], [], M, "Node0");
 
 % If there are >0 other nodes in the system
-join_system(Name, M, [N]) ->
+join_system(_, M, [N]) ->
 
 	M2 = round(math:pow(2,list_to_integer(M))),
 
@@ -343,13 +374,19 @@ join_system(Name, M, [N]) ->
 	MyName = list_to_atom("Node"++integer_to_list(NewNodeNum)),
 	global:register_name(MyName, self()),
 
+	% find the node we want to follow
+	NumToFollow = get_next_node_num(NewNodeNum),
+	NodeName = list_to_atom("Node"++integer_to_list(NumToFollow)),
+	PID = global:whereis_name(NodeName),
+	monitor(process, PID),
+
 	% Take over the appropriate processes
 	TakenNodes = get_all_nums(AllNames),
 	NextNum = lists:nth(((string:str(TakenNodes, [NewNodeNum]) + 1) rem M2), TakenNodes),
 	ProcessesToTake = get_processes_to_take(NewNodeNum, NextNum, M2),
 	take_processes(ProcessesToTake, MyName),
 	% And behave as non storage node
-	non_storage_process([], [], M).
+	non_storage_process([], [], M, MyName).
 
 % Calculate which processes to take
 get_processes_to_take(Start, Finish, Total) ->
@@ -407,7 +444,7 @@ hash(String, Total, M) ->
 	Arith = hd(String) + round(math:pow(2, 6)) + round(math:pow(2, 16)) - Total,
 	hash(tl(String), Arith + Total, M).
 
-get_value([], Key) -> 
+get_value([], _) -> 
 	no_value;
 get_value(Dictionary, Key) -> 
 	{Key1, Value1} = hd(Dictionary),
@@ -418,9 +455,7 @@ get_value(Dictionary, Key) ->
 			get_value(tl(Dictionary), Key)
 	end.
 
-get_smallest([]) -> no_value;
 
-get_smallest(Dictionary) -> 0. 
 
 % returns the node number that a storage process should send the message to for greatest efficiency
 % Start Node: the node sending the message
@@ -459,7 +494,7 @@ get_node(Process_Number, M) ->
 	case global:whereis_name(Name) of
 		undefined ->
 			get_node(Process_Number - 1, M);
-		PID ->
+		_ ->
 			Process_Number
 	end.
 
