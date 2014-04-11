@@ -134,39 +134,45 @@ storage_process(List, Process_Number, M)->
 
 		% find the last key in lexicographic order
 		{PID, Ref, first_key} ->
+			io:format("~p Process ~p got message 'first_key'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = hd(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
 			storage_process(List, Process_Number, M);
 
 		% find the last key in lexicographic order
 		{PID, Ref, last_key}->
+			io:format("~p Process ~p got message 'last_key'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = lists:last(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
 			storage_process(List, Process_Number, M);
 
 		% number of keys currently stored in the system
 		{PID, Ref, num_keys}->
+			io:format("~p Process ~p got message 'num_keys'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot_Size = lists:length(gather_snapshot(List, [], M, 0)),
-			PID ! {Ref, Snapshot_Size, result},
+			PID ! {Ref, result, Snapshot_Size},
 			storage_process(List, Process_Number, M);
 
 		% list of node numbers currently in the system
 		{_, _, node_list}->
+			io:format("~p Process ~p got message 'node_list'~n", [timestamp(),Process_Number]),
 			storage_process(List, Process_Number, M);
 
 		% sent from the controller to leave the system
 		{_, _, leave}->
+			io:format("~p Process ~p got message 'leave'~n", [timestamp(),Process_Number]),
 			storage_process(List, Process_Number, M);
 
 		% first collector - send out snapshot messages
 		{PID, Ref, snapshot} ->
+			io:format("~p Process ~p got message 'snapshot'~n", [timestamp(),Process_Number]),
 			
 			Msg = {PID, Ref, Process_Number, snapshot},
 
@@ -244,20 +250,17 @@ non_storage_process(BackupDict, NewBackupDict, M, Name) ->
 
 		% create new processes and give them their data
 		{'DOWN', _, process, PID, _} ->
-
-
-			MonitorNode = get_next_node_num(Name),
+			DownNode = get_next_node_num(Name),
+			DownName = list_to_atom("Node"++integer_to_list(DownNode)),
+			MonitorNode = get_next_node_num(DownName),
 			MonitorNodeName = list_to_atom("Node"++integer_to_list(MonitorNode)),
-			PrevNode = get_prev_node(Name),
-			OurNumber = get_next_node_num(PrevNode),
 			PID = global:whereis_name(MonitorNodeName),
 			monitor(process, PID),
 			% grab the fallen node's processes
-			ProcessesToTake = get_processes_to_take(OurNumber, MonitorNode, M),
+			ProcessesToTake = get_processes_to_take(DownNode, MonitorNode, M),
 			spawn_proc_list(ProcessesToTake, M),
 			timer:sleep(1000),
-			store_dictionary(BackupDict, hd(ProcessesToTake)),
-			non_storage_process(BackupDict, NewBackupDict, M, Name);
+			store_dictionary(BackupDict, hd(ProcessesToTake));
 
 		{_, _, backup, Key, Value}->
 			non_storage_process(BackupDict++[{Key,Value}], NewBackupDict, M, Name)
@@ -382,7 +385,6 @@ join_system(_, M, [N]) ->
 	NodeName = list_to_atom("Node"++integer_to_list(NumToFollow)),
 	PID = global:whereis_name(NodeName),
 	monitor(process, PID),
-
 
 	% Take over the appropriate processes
 	TakenNodes = get_all_nums(AllNames),
