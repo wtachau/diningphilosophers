@@ -67,6 +67,7 @@ storage_process(List, Process_Number, M)->
 
 		% store a value for our key, msg the controller,
 		{PID, Ref, store, Key, Value}->
+			io:format("~p Process ~p got message 'store'~n", [timestamp(), Process_Number]),
 			Send_To = hash(Key, 0, M),
 			if 
 				Send_To == Process_Number->
@@ -99,6 +100,7 @@ storage_process(List, Process_Number, M)->
 
 		% a dictionary value meant for backup on the correct node
 		{__, Ref, backup, Key, Value, Destination}->
+			io:format("~p Process ~p got message 'backup'~n", [timestamp(), Process_Number]),
 			Node_ID = get_node(Process_Number, M),
 			
 			if  % this process is in the same node so we send to our non-storage process
@@ -118,6 +120,7 @@ storage_process(List, Process_Number, M)->
 
 		% retrieve the value of a given key
 		{PID, Ref, retrieve, Key}-> 
+			io:format("~p Process ~p got message 'retrieve'~n", [timestamp(), Process_Number]),
 			Send_To = hash(Key, 0, M),
 			if  % the key we want to retrieve is on this process
 				Send_To == Process_Number ->
@@ -127,34 +130,74 @@ storage_process(List, Process_Number, M)->
 				true ->
 					% the key is not on this process
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
-					send({PID, Ref, retrieve, Key}, Process_ID, storage_process)
+					Name = list_to_atom("StorageProcess"++integer_to_list(Process_ID)),
+					Msg = {PID, Ref, retrieve, Key},
+					io:format("~p~n", [Msg]),
+					global:send(Name, Msg)
 			end,
 			storage_process(List, Process_Number, M);
 
 
 		% find the last key in lexicographic order
 		{PID, Ref, first_key} ->
-			% creates one large dictionary from all storage processes
-			Snapshot = gather_snapshot(List, [], M, 0),
+			io:format("~p Process ~p got message 'first_key'~n", [timestamp(), Process_Number]),
+
+			Msg = {PID, Ref, Process_Number, snapshot},
+
+			% generate the first message
+			Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
+			Recipient = (Process_Number + 1) rem Total_Storage_Processes,
+			RecipientName = list_to_atom("StorageProcess"++integer_to_list(Recipient)),
+			
+			global:send(RecipientName, Msg),
+
+			% start listening for snapshots before continuing
+			Snapshot = gather_snapshot(List, [], M, 1),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = hd(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
+			% once you're done, keep listening
 			storage_process(List, Process_Number, M);
 
 		% find the last key in lexicographic order
 		{PID, Ref, last_key}->
+			io:format("~p Process ~p got message 'last_key'~n", [timestamp(), Process_Number]),
 			% creates one large dictionary from all storage processes
-			Snapshot = gather_snapshot(List, [], M, 0),
+
+			Msg = {PID, Ref, Process_Number, snapshot},
+
+			% generate the first message
+			Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
+			Recipient = (Process_Number + 1) rem Total_Storage_Processes,
+			RecipientName = list_to_atom("StorageProcess"++integer_to_list(Recipient)),
+			
+			global:send(RecipientName, Msg),
+
+			% start listening for snapshots before continuing
+			Snapshot = gather_snapshot(List, [], M, 1),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = lists:last(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
 			storage_process(List, Process_Number, M);
 
 		% number of keys currently stored in the system
 		{PID, Ref, num_keys}->
+			io:format("~p Process ~p got message 'num_keys'~n", [timestamp(), Process_Number]),
 			% creates one large dictionary from all storage processes
-			Snapshot_Size = lists:length(gather_snapshot(List, [], M, 0)),
-			PID ! {Ref, Snapshot_Size, result},
+
+			Msg = {PID, Ref, Process_Number, snapshot},
+
+			% generate the first message
+			Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
+			Recipient = (Process_Number + 1) rem Total_Storage_Processes,
+			RecipientName = list_to_atom("StorageProcess"++integer_to_list(Recipient)),
+			
+			global:send(RecipientName, Msg),
+
+			% start listening for snapshots before continuing
+			Snapshot = gather_snapshot(List, [], M, 1),
+			Snapshot_Size = length(Snapshot),
+			PID ! {Ref, result, Snapshot_Size},
 			storage_process(List, Process_Number, M);
 
 		% list of node numbers currently in the system
@@ -167,6 +210,7 @@ storage_process(List, Process_Number, M)->
 
 		% first collector - send out snapshot messages
 		{PID, Ref, snapshot} ->
+			io:format("~p Process ~p got message 'snapshot'~n", [timestamp(), Process_Number]),
 			
 			Msg = {PID, Ref, Process_Number, snapshot},
 
@@ -178,7 +222,8 @@ storage_process(List, Process_Number, M)->
 			global:send(RecipientName, Msg),
 
 			% start listening for snapshots before continuing
-			gather_snapshot(List, [], M, 1),
+			Snapshot = gather_snapshot(List, [], M, 1),
+			PID ! {Ref, result, Snapshot},
 			% once you're done, keep listening
 			storage_process(List, Process_Number, M);
 
