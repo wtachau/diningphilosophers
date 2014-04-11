@@ -123,7 +123,7 @@ storage_process(List, Process_Number, M)->
 				Send_To == Process_Number ->
 					Return_Value = get_value(List, Key),
 					io:format("~p Process ~p retrieved value ~p from Key '~p'~n", [timestamp(), Process_Number, Return_Value, Key]),
-					PID ! {Ref, Return_Value, result};
+					PID ! {Ref, retrieved, Return_Value};
 				true ->
 					% the key is not on this process
 					Process_ID = recipient(Process_Number, Send_To, 0, M),
@@ -245,14 +245,15 @@ non_storage_process(BackupDict, NewBackupDict, M, Name) ->
 		% create new processes and give them their data
 		{'DOWN', _, process, PID, _} ->
 
-			DownNode = get_next_node_num(Name),
-			DownName = list_to_atom("Node"++integer_to_list(DownNode)),
-			MonitorNode = get_next_node_num(DownName),
+
+			MonitorNode = get_next_node_num(Name),
 			MonitorNodeName = list_to_atom("Node"++integer_to_list(MonitorNode)),
+			PrevNode = get_prev_node(Name),
+			OurNumber = get_next_node_num(PrevNode),
 			PID = global:whereis_name(MonitorNodeName),
 			monitor(process, PID),
 			% grab the fallen node's processes
-			ProcessesToTake = get_processes_to_take(DownNode, MonitorNode, M),
+			ProcessesToTake = get_processes_to_take(OurNumber, MonitorNode, M),
 			spawn_proc_list(ProcessesToTake, M),
 			timer:sleep(1000),
 			store_dictionary(BackupDict, hd(ProcessesToTake)),
@@ -377,10 +378,11 @@ join_system(_, M, [N]) ->
 	global:register_name(MyName, self()),
 
 	% find the node we want to follow
-	NumToFollow = get_next_node_num(NewNodeNum),
+	NumToFollow = get_next_node_num(MyName),
 	NodeName = list_to_atom("Node"++integer_to_list(NumToFollow)),
 	PID = global:whereis_name(NodeName),
 	monitor(process, PID),
+
 
 	% Take over the appropriate processes
 	TakenNodes = get_all_nums(AllNames),
