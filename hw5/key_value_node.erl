@@ -43,7 +43,6 @@ storage_start(List, Process_Number, M) ->
 % Continuous listening method for storage processes
 storage_process(List, Process_Number, M)->
 	M2 = round(math:pow(2,list_to_integer(M))),
-	io:format("listning..."),
 	receive
 		{Name, takeover} ->
 			% find the non-storage node before the one who sent takeover
@@ -138,9 +137,7 @@ storage_process(List, Process_Number, M)->
 			Send_To = hash(Key, 0, M),
 			if  % the key we want to retrieve is on this process
 				Send_To == Process_Number ->
-					io:format("is it in ~p~n?", [List]),
 					Return_Value = get_value(List, Key),
-					io:format("trying to return ~p~n", [Return_Value]),
 					PID ! {Ref, Return_Value, result};
 				true ->
 					% the key is not on this process
@@ -153,7 +150,7 @@ storage_process(List, Process_Number, M)->
 		% find the last key in lexicographic order
 		{PID, Ref, first_key} ->
 			% creates one large dictionary from all storage processes
-			Snapshot = gather_snapshot(List, [], Process_Number, M, 0),
+			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = hd(Snapshot_Sorted),
 			PID ! {Ref, Key, result},
@@ -162,7 +159,7 @@ storage_process(List, Process_Number, M)->
 		% find the last key in lexicographic order
 		{PID, Ref, last_key}->
 			% creates one large dictionary from all storage processes
-			Snapshot = gather_snapshot(List, [], Process_Number, M, 0),
+			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = lists:last(Snapshot_Sorted),
 			PID ! {Ref, Key, result},
@@ -171,7 +168,7 @@ storage_process(List, Process_Number, M)->
 		% number of keys currently stored in the system
 		{PID, Ref, num_keys}->
 			% creates one large dictionary from all storage processes
-			Snapshot_Size = lists:length(gather_snapshot(List, [], Process_Number, M, 0)),
+			Snapshot_Size = lists:length(gather_snapshot(List, [], M, 0)),
 			PID ! {Ref, Snapshot_Size, result},
 			storage_process(List, Process_Number, M);
 
@@ -183,16 +180,45 @@ storage_process(List, Process_Number, M)->
 		{PID, Ref, leave}->
 			storage_process(List, Process_Number, M);
 
+		% first collector - send out snapshot messages
+		{PID, Ref, snapshot} ->
+			
+			Msg = {PID, Ref, Process_Number, snapshot},
+
+			% generate the first message
+			Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
+			Recipient = (Process_Number + 1) rem Total_Storage_Processes,
+			RecipientName = list_to_atom("StorageProcess"++integer_to_list(Recipient)),
+			
+			global:send(RecipientName, Msg),
+
+			% start listening for snapshots before continuing
+			gather_snapshot(List, [], M, 1),
+			% once you're done, keep listening
+			storage_process(List, Process_Number, M);
+
 		% send the dictionary to the collector
 		{PID, Ref, Collector_Number, snapshot} ->
-			io:format("In snapshot~n"),
+			
+			Collector_Name = list_to_atom("StorageProcess"++integer_to_list(Collector_Number)),
+
+			% First send dict
+			send_dictionary(List, Collector_Name),
+
+			% now pass on message
 			Msg = {PID, Ref, Collector_Number, snapshot},
 			Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
 			Recipient = (Process_Number + 1) rem Total_Storage_Processes,
-			io:format("going to send message, total = ~p, procnum = ~p, recip = ~p...", [Total_Storage_Processes, Process_Number, Recipient]),
-			send(Msg, Recipient, storage_process),
+
+			if 
+				Collector_Number == Recipient ->
+					ok;
+				true ->
+					RecipientName = list_to_atom("StorageProcess"++integer_to_list(Recipient)),
+					global:send(RecipientName, Msg)
+			end,
+			% and keep listening
 			storage_process(List, Process_Number, M)
-			%send_dictionary(List, Collector_Number)
 	end.
 
 % Non-storage processes listen here
@@ -200,8 +226,6 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 	receive
 		% From a storage process "going out of business"
 		{imdying, List, Process_Number, NewNode} ->
-			
-			io:format("time to delete ~p~n", [Process_Number]),
 
 			% send new node dicts to populate storage processes
 			global:send(NewNode, {makeproc, List, Process_Number}),
@@ -236,6 +260,35 @@ non_storage_process(BackupDict, NewBackupDict, M) ->
 		{PID, Ref, backup, Key, Value}->
 			non_storage_process(BackupDict++[{Key,Value}], NewBackupDict, M)
 	end.
+
+
+gather_snapshot(Dictionary, Snapshot, M, Total_Received)->
+	Total_Storage_Processes = round(math:pow(2, list_to_integer(M))),
+	io:format("in gather snapshot (total:~p, received:~p)~n", [Total_Storage_Processes, Total_Received]),
+	if
+		Total_Received == Total_Storage_Processes ->
+			io:format("found all dictionaries! ~p ~n", [Snapshot++Dictionary]),
+			Snapshot++Dictionary;
+		true-> 
+			receive
+				{dict_item, Item} ->
+					io:format("received dict_item ~p~n", [Item]),
+					gather_snapshot(Dictionary, Snapshot++[Item], M, Total_Received);
+				{complete} ->
+					io:format("received complete!~n"),
+					gather_snapshot(Dictionary, Snapshot, M, Total_Received + 1)
+			end
+	end.
+	
+
+% tell the collector that we have finished sending our dictionary
+send_dictionary([], Collector) -> 
+	global:send(Collector, {complete});
+
+% send dictionary items one by one to the collector
+send_dictionary(Dictionary, Collector) ->
+	global:send(Collector, {dict_item, hd(Dictionary)}),
+	send_dictionary(tl(Dictionary), Collector).
 
 % get the node before this one
 get_prev_node(NodeName) ->
@@ -427,7 +480,7 @@ recipient(Start_Node, End_Node, K, M) ->
 % finds the index that the process belongs to
 get_node(Process_Number, M) ->
 	Arith = (Process_Number + round(math:pow(2, list_to_integer(M)))) rem round(math:pow(2, list_to_integer(M))),
-	io:format("Arith String: ~p~n", [Arith]),
+	%io:format("Arith String: ~p~n", [Arith]),
 	Name = list_to_atom("Node"++integer_to_list(Arith)),
 	case global:whereis_name(Name) of
 		undefined ->
@@ -458,33 +511,6 @@ send(Msg, Number, storage_process)->
 	Name = list_to_atom("StorageProcess"++integer_to_list(Number)),
 	io:format("sending ~p to ~p~n", [Msg, Name]),
 	global:send(Name, Msg).
-
-gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received)->
-	Total_Storage_Processes = round(math:pow(2, M)),
-	io:format("in gather snapshot"),
-	if
-		Total_Received == Total_Storage_Processes ->
-			io:format("found all dictionaries!"),
-			Snapshot++Dictionary;
-		true-> ok
-	end,
-	receive
-		{Item, dict_item} ->
-			io:format("received dict_item ~p~n", [dict_item]),
-			gather_snapshot(Dictionary, Snapshot++[Item], Process_Number, M, Total_Received);
-		{complete} ->
-			io:format("received complete!"),
-			gather_snapshot(Dictionary, Snapshot, Process_Number, M, Total_Received + 1)
-	end.
-
-% tell the collector that we have finished sending our dictionary
-send_dictionary([], Collector_Number) -> 
-	send({complete}, Collector_Number, storage_process);
-
-% send dictionary items one by one to the collector
-send_dictionary(Dictionary, Collector_Number) ->
-	send({hd(Dictionary), dict_item}, Collector_Number, storage_process),
-	send_dictionary(tl(Dictionary), Collector_Number).
 
 
 
