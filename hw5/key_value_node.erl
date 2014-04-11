@@ -134,39 +134,45 @@ storage_process(List, Process_Number, M)->
 
 		% find the last key in lexicographic order
 		{PID, Ref, first_key} ->
+			io:format("~p Process ~p got message 'first_key'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = hd(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
 			storage_process(List, Process_Number, M);
 
 		% find the last key in lexicographic order
 		{PID, Ref, last_key}->
+			io:format("~p Process ~p got message 'last_key'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot = gather_snapshot(List, [], M, 0),
 			Snapshot_Sorted = lists:keysort(1, Snapshot),
 			{Key, _} = lists:last(Snapshot_Sorted),
-			PID ! {Ref, Key, result},
+			PID ! {Ref, result, Key},
 			storage_process(List, Process_Number, M);
 
 		% number of keys currently stored in the system
 		{PID, Ref, num_keys}->
+			io:format("~p Process ~p got message 'num_keys'~n", [timestamp(),Process_Number]),
 			% creates one large dictionary from all storage processes
 			Snapshot_Size = lists:length(gather_snapshot(List, [], M, 0)),
-			PID ! {Ref, Snapshot_Size, result},
+			PID ! {Ref, result, Snapshot_Size},
 			storage_process(List, Process_Number, M);
 
 		% list of node numbers currently in the system
 		{_, _, node_list}->
+			io:format("~p Process ~p got message 'node_list'~n", [timestamp(),Process_Number]),
 			storage_process(List, Process_Number, M);
 
 		% sent from the controller to leave the system
 		{_, _, leave}->
+			io:format("~p Process ~p got message 'leave'~n", [timestamp(),Process_Number]),
 			storage_process(List, Process_Number, M);
 
 		% first collector - send out snapshot messages
 		{PID, Ref, snapshot} ->
+			io:format("~p Process ~p got message 'snapshot'~n", [timestamp(),Process_Number]),
 			
 			Msg = {PID, Ref, Process_Number, snapshot},
 
